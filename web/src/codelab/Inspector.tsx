@@ -16,7 +16,7 @@ interface Props {
 }
 
 /** Relative-or-absolute agreement check between a traced value and a browser recomputation. */
-function Check({ label, traced, recomputed, tol, refLabel = "browser recomputation" }: { label: ReactNode; traced: number | null | undefined; recomputed: number; tol: number; refLabel?: string }) {
+export function Check({ label, traced, recomputed, tol, refLabel = "browser recomputation" }: { label: ReactNode; traced: number | null | undefined; recomputed: number; tol: number; refLabel?: string }) {
   if (traced == null || !Number.isFinite(traced) || !Number.isFinite(recomputed)) {
     return <div className="text-[12px] text-fg-3">Cross-check unavailable (non-finite values).</div>;
   }
@@ -41,7 +41,7 @@ function Check({ label, traced, recomputed, tol, refLabel = "browser recomputati
   );
 }
 
-const Explain = ({ children }: { children: ReactNode }) => <p className="text-[13.5px] leading-relaxed text-fg-2">{children}</p>;
+export const Explain = ({ children }: { children: ReactNode }) => <p className="text-[13.5px] leading-relaxed text-fg-2">{children}</p>;
 
 export function Inspector({ frame, framework, point }: Props) {
   const { state: s, prev, snap, locals } = frame;

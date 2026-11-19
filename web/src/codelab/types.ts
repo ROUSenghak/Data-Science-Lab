@@ -60,20 +60,49 @@ export interface LinRegState {
   singular?: number[] | null;
 }
 
-export interface Snapshot {
+/** Canonical K-Means state (kmeans-numpy and kmeans-sklearn watch expressions). */
+export interface KMeansState {
+  X?: [number, number][] | null;
+  k?: number | null;
+  centroids?: [number, number][] | null;
+  centroids_init?: [number, number][] | null;
+  labels?: number[] | null;
+  prev_labels?: number[] | null;
+  /** n × k squared Euclidean distances. */
+  sq_dist?: number[][] | null;
+  /** Objective: after the assignment step J(c⁽ᵗ⁾, μ⁽ᵗ⁻¹⁾), after the update J(c⁽ᵗ⁾, μ⁽ᵗ⁾). */
+  J?: number | null;
+  counts?: number[] | null;
+  sums?: [number, number][] | null;
+  shift?: number[] | null;
+  n_changed?: number | null;
+  /** Python loop index (0-based); iteration t = iteration + 1. */
+  iteration?: number | null;
+  inertia?: number | null;
+  init_method?: number | null;
+  /** scikit-learn only. */
+  n_iter?: number | null;
+  /** Euclidean distances from model.transform(X). */
+  dist?: number[][] | null;
+  check_labels?: number[] | null;
+  check_J?: number | null;
+  n_init?: number | null;
+}
+
+export interface Snapshot<S = LinRegState> {
   index: number;
   step: string;
   lines: [number, number];
-  state: LinRegState;
+  state: S;
   locals: Record<string, VarView>;
   removed: string[];
 }
 
-export interface RunResponse {
+export interface RunResponse<S = LinRegState> {
   experiment_id: string;
   params: Record<string, number>;
   source: string;
-  snapshots: Snapshot[];
+  snapshots: Snapshot<S>[];
   stdout: string;
   warnings: string[];
   error: string | null;

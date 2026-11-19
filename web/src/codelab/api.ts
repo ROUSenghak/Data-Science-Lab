@@ -1,4 +1,4 @@
-import type { ExperimentMeta, RunResponse } from "./types";
+import type { ExperimentMeta, LinRegState, RunResponse } from "./types";
 
 /** Proxied to the FastAPI service by next.config.ts rewrites. */
 const BASE = "/api/py";
@@ -27,5 +27,5 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const getExperiment = (id: string) => call<ExperimentMeta>(`/experiments/${id}`);
 
-export const runExperiment = (id: string, params: Record<string, number>) =>
-  call<RunResponse>(`/experiments/${id}/run`, { method: "POST", body: JSON.stringify({ params }) });
+export const runExperiment = <S = LinRegState>(id: string, params: Record<string, number>) =>
+  call<RunResponse<S>>(`/experiments/${id}/run`, { method: "POST", body: JSON.stringify({ params }) });

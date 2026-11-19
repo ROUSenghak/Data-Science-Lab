@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { CodeLab } from "@/codelab/CodeLab";
+import { CodeLabNav } from "@/codelab/CodeLabNav";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { Tex } from "@/components/math/Tex";
 import { Expand } from "@/components/ui/primitives";
@@ -50,6 +51,7 @@ export default function CodeLabPage() {
             .
           </p>
         </div>
+        <CodeLabNav current="/code-lab" />
       </div>
       <p className="mb-2 text-[13px] text-fg-2">
         <b className="font-medium text-fg">Use it:</b> pick an implementation → edit the boxed numbers in the code → <b className="font-medium text-fg">Run</b> → step through the recorded trace with ← / →, or click a step or a code line.

@@ -210,3 +210,112 @@ _register(
         ],
     )
 )
+
+
+# ---------------------------------------------------------------- K-Means
+
+
+def _cluster_data_params() -> list[Param]:
+    return [
+        Param("seed", "Random seed", "int", 0, 9999, 1, 0, "Seed for NumPy's default_rng; fixes the dataset."),
+        Param("n_samples", "Samples n", "int", 10, 200, 1, 60, "Number of 2-D points."),
+        Param("n_blobs", "True blobs", "int", 1, 6, 1, 3, "Number of Gaussian blobs that generate the data."),
+        Param("cluster_std", "Blob σ", "float", 0.1, 3.0, 0.1, 1.0, "Standard deviation of each blob."),
+        Param("k", "Clusters K", "int", 1, 8, 1, 3, "Number of centroids."),
+    ]
+
+
+_KMEANS_WATCHES_DATA = {"X": "X", "k": "k"}
+
+_register(
+    Experiment(
+        id="kmeans-numpy",
+        lab="k-means",
+        framework="numpy",
+        title="Lloyd's algorithm from scratch",
+        summary="K-Means written directly in NumPy: explicit distances, assignments, centroid means and objective.",
+        execution="educational-implementation",
+        template="kmeans_numpy.py",
+        params=_cluster_data_params()
+        + [
+            Param("init_method", "Initialization", "int", 0, 2, 1, 0, "0: random data points, 1: k-means++, 2: uniform in the bounding box."),
+            Param("init_seed", "Init seed", "int", 0, 9999, 1, 4, "Seed of the initialization only; the data stay the same."),
+            Param("max_iter", "Max iterations", "int", 1, 50, 1, 20, "Upper bound on Lloyd iterations."),
+        ],
+        steps=[
+            StepInfo("data", "Generate data", "Gaussian blobs around random centres, fixed seed."),
+            StepInfo("init", "Initialise centroids", "Pick the starting centroids μ⁽⁰⁾ (random points, k-means++ or uniform)."),
+            StepInfo("distances", "Distances", "Squared Euclidean distance from every point to every centroid."),
+            StepInfo("assign", "Assignment", "Each point joins its nearest centroid; J is evaluated with the old centroids."),
+            StepInfo("update", "Centroid update", "Each centroid moves to the mean of its points; empty clusters keep theirs."),
+            StepInfo("objective", "Objective J", "Within-cluster sum of squares after the update: the iteration is complete."),
+            StepInfo("evaluate", "Final labels and inertia", "Labels and inertia of the returned centroids."),
+        ],
+        watches={
+            **_KMEANS_WATCHES_DATA,
+            "centroids": "centroids",
+            "centroids_init": "centroids_init",
+            "labels": "labels",
+            "prev_labels": "prev_labels",
+            "sq_dist": "sq_dist",
+            "J": "J",
+            "counts": "counts",
+            "sums": "sums",
+            "shift": "shift",
+            "n_changed": "n_changed",
+            "iteration": "iteration",
+            "inertia": "inertia",
+            "init_method": "init_method",
+        },
+        notes=[
+            "Every operation is visible: this is our own implementation, not a library call.",
+            "Ties in argmin go to the lowest centroid index. An empty cluster keeps its previous centroid (scikit-learn instead relocates it to a far-away point).",
+            "Stopping rule as in scikit-learn with tol = 0: stop after the first iteration in which no point changes cluster.",
+        ],
+    )
+)
+
+_register(
+    Experiment(
+        id="kmeans-sklearn",
+        lab="k-means",
+        framework="sklearn",
+        title="sklearn.cluster.KMeans",
+        summary="The same data clustered by scikit-learn's KMeans; only its public inputs and fitted attributes are shown.",
+        execution="library",
+        template="kmeans_sklearn.py",
+        params=_cluster_data_params()
+        + [
+            Param("init_method", "Initialization", "int", 0, 1, 1, 1, '0: "random" (k data points), 1: "k-means++" (greedy).'),
+            Param("n_init", "Restarts n_init", "int", 1, 20, 1, 1, "Independent initializations; the run with the lowest inertia is kept."),
+            Param("random_state", "random_state", "int", 0, 9999, 1, 0, "Seed of scikit-learn's initialization."),
+            Param("max_iter", "Max iterations", "int", 1, 300, 1, 20, "Upper bound on Lloyd iterations per run."),
+            Param("tol", "Tolerance", "float", 0.0, 0.01, 0.0001, 0.0001, "Stop when the squared centroid shift falls below tol × mean variance of X."),
+        ],
+        steps=[
+            StepInfo("data", "Data", "Same blobs as the NumPy example (same seed, same values)."),
+            StepInfo("model", "Configure KMeans", "Hyper-parameters only; nothing is computed yet."),
+            StepInfo("fit", "model.fit(X)", "One untraced library call; read cluster_centers_, labels_, inertia_, n_iter_."),
+            StepInfo("transform", "model.transform(X)", "Public API: Euclidean distance from every point to every centre."),
+            StepInfo("check", "Independent check", "Our own NumPy argmin and objective, compared with the fitted attributes."),
+        ],
+        watches={
+            **_KMEANS_WATCHES_DATA,
+            "centroids": "model.cluster_centers_",
+            "labels": "model.labels_",
+            "inertia": "model.inertia_",
+            "n_iter": "model.n_iter_",
+            "dist": "dist",
+            "sq_dist": "sq_dist",
+            "check_labels": "check_labels",
+            "check_J": "check_J",
+            "init_method": "init_method",
+            "n_init": "n_init",
+        },
+        notes=[
+            "model.fit() is a single library call: its iterations are not traced here.",
+            "KMeans exposes cluster_centers_, labels_, inertia_ and n_iter_ (iterations of the best run). transform() gives Euclidean distances to the centres.",
+            'scikit-learn\'s "k-means++" is the greedy variant (several candidates per step); empty clusters are relocated to far-away points.',
+        ],
+    )
+)

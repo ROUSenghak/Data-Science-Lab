@@ -26,6 +26,16 @@
   --viz-run-1: #eda100;
   --viz-run-2: #e87ba4;
   --viz-run-3: #6250d6;
+  /* K-Means clusters: the 8 categorical slots in fixed order. Past 3 slots hue alone is not
+     separable, so cluster plots add a marker shape per cluster, centroid labels and a table. */
+  --viz-cluster-1: #2a78d6;
+  --viz-cluster-2: #eb6834;
+  --viz-cluster-3: #1baf7a;
+  --viz-cluster-4: #eda100;
+  --viz-cluster-5: #e87ba4;
+  --viz-cluster-6: #008300;
+  --viz-cluster-7: #6250d6;
+  --viz-cluster-8: #e34948;
   --viz-grid: #ecebe7;
   --viz-axis: #a5a39c;
   --viz-seq-lo: #f3f7fd;
@@ -72,6 +82,14 @@
   --viz-run-1: #c98500;
   --viz-run-2: #d55181;
   --viz-run-3: #9085e9;
+  --viz-cluster-1: #3987e5;
+  --viz-cluster-2: #d95926;
+  --viz-cluster-3: #199e70;
+  --viz-cluster-4: #c98500;
+  --viz-cluster-5: #d55181;
+  --viz-cluster-6: #0ca30c;
+  --viz-cluster-7: #9085e9;
+  --viz-cluster-8: #e66767;
   --viz-grid: #262624;
   --viz-axis: #5f5e58;
   --viz-seq-lo: #1a1a19;

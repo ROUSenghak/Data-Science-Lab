@@ -34,6 +34,19 @@ export const LINEAR_REGRESSION_SECTIONS = [
   { id: "exercises", title: "Exercises" },
 ];
 
+export const K_MEANS_SECTIONS = [
+  { id: "motivation", title: "Motivation" },
+  { id: "clustering-vs-classification", title: "Clustering vs classification" },
+  { id: "objective", title: "The objective" },
+  { id: "lloyd", title: "Lloyd's algorithm" },
+  { id: "convergence", title: "Convergence and local minima" },
+  { id: "initialization", title: "Initialization" },
+  { id: "choosing-k", title: "Choosing K" },
+  { id: "limitations", title: "Limitations and failure cases" },
+  { id: "implementation", title: "Implementation" },
+  { id: "exercises", title: "Exercises" },
+];
+
 const planned = (slug: string, title: string, summary: string): Topic => ({ slug, title, summary, status: "planned" });
 
 export const MODULES: Module[] = [
@@ -71,7 +84,14 @@ export const MODULES: Module[] = [
         sections: LINEAR_REGRESSION_SECTIONS,
       },
       planned("logistic-regression", "Logistic regression", "Probabilistic classification and cross-entropy."),
-      planned("k-means", "K-Means clustering", "Lloyd's algorithm and its failure modes."),
+      {
+        slug: "k-means",
+        title: "K-Means Clustering",
+        summary: "Lloyd's algorithm, why it always stops, why it can stop in the wrong place, and its failure modes.",
+        status: "available",
+        href: "/learn/machine-learning/k-means",
+        sections: K_MEANS_SECTIONS,
+      },
       planned("pca", "Principal component analysis", "Variance, eigenvectors, and projections."),
     ],
   },
@@ -142,7 +162,26 @@ export const LABS: Lab[] = [
     href: "/code-lab",
   },
   { slug: "clt", title: "Central limit theorem", summary: "Sample means from arbitrary distributions.", topic: "Probability and Statistics", level: "Foundations", status: "planned", execution: ["browser"] },
-  { slug: "k-means", title: "K-Means", summary: "Assignment and update steps; bad initializations.", topic: "Machine Learning", level: "Intermediate", status: "planned", execution: ["browser", "python"] },
+  {
+    slug: "k-means",
+    title: "K-Means playground",
+    summary: "Step through assignments and centroid updates, compare initializations, choose K, and break K-Means on non-spherical data.",
+    topic: "Machine Learning",
+    level: "Foundations",
+    status: "available",
+    execution: ["browser"],
+    href: "/labs/k-means",
+  },
+  {
+    slug: "k-means-code",
+    title: "K-Means in NumPy and scikit-learn",
+    summary: "Lloyd's algorithm line by line in NumPy, and sklearn.cluster.KMeans on the same data, with every value checked.",
+    topic: "Machine Learning",
+    level: "Foundations",
+    status: "available",
+    execution: ["python"],
+    href: "/code-lab/k-means",
+  },
   { slug: "pca", title: "PCA", summary: "Project data onto principal axes; explained variance.", topic: "Machine Learning", level: "Intermediate", status: "planned", execution: ["browser", "python"] },
   { slug: "mlp", title: "Neural network training", summary: "Activations, gradients and loss for a small MLP.", topic: "Deep Learning", level: "Intermediate", status: "planned", execution: ["python"] },
   { slug: "attention", title: "Transformer attention", summary: "Queries, keys, values and attention weights.", topic: "Generative AI and LLMs", level: "Advanced", status: "planned", execution: ["python"] },
@@ -174,6 +213,7 @@ export function searchIndex(): SearchEntry[] {
     { title: "Learn — all modules", href: "/learn", kind: "Page", keywords: "curriculum catalogue topics" },
     { title: "Labs — all experiments", href: "/labs", kind: "Page", keywords: "playground experiments interactive" },
     { title: "Code Lab", href: "/code-lab", kind: "Page", keywords: "python numpy pytorch scikit-learn sklearn code execution" },
+    { title: "Code Lab — K-Means", href: "/code-lab/k-means", kind: "Page", keywords: "python numpy scikit-learn sklearn kmeans clustering code execution" },
     { title: "Projects", href: "/projects", kind: "Page" },
   ];
   for (const m of MODULES)
@@ -189,6 +229,12 @@ export function searchIndex(): SearchEntry[] {
     { title: "Outliers and nonlinear data", href: "/labs/linear-regression#failure-cases", kind: "Lab", context: "Linear regression playground", keywords: "failure outlier misspecification residuals" },
     { title: "PyTorch autograd: backward()", href: "/code-lab?framework=pytorch", kind: "Lab", context: "Code Lab", keywords: "backward gradient optimizer sgd zero_grad tensor" },
     { title: "scikit-learn LinearRegression", href: "/code-lab?framework=sklearn", kind: "Lab", context: "Code Lab", keywords: "fit closed form normal equations lstsq" },
+    { title: "Lloyd's algorithm step by step", href: "/labs/k-means#algorithm", kind: "Lab", context: "K-Means playground", keywords: "kmeans k-means clustering assignment update centroid voronoi" },
+    { title: "K-Means initialization and local minima", href: "/labs/k-means#initialization", kind: "Lab", context: "K-Means playground", keywords: "kmeans k-means++ random seed init local minimum restarts n_init" },
+    { title: "Choosing K: elbow and silhouette", href: "/labs/k-means#choosing-k", kind: "Lab", context: "K-Means playground", keywords: "kmeans number of clusters elbow silhouette inertia" },
+    { title: "K-Means failure cases", href: "/labs/k-means#failure-cases", kind: "Lab", context: "K-Means playground", keywords: "kmeans clustering non-spherical elongated rings moons unequal" },
+    { title: "Lloyd's algorithm in NumPy", href: "/code-lab/k-means?framework=numpy", kind: "Lab", context: "Code Lab", keywords: "kmeans k-means numpy argmin distances centroid mean empty cluster" },
+    { title: "scikit-learn KMeans", href: "/code-lab/k-means?framework=sklearn", kind: "Lab", context: "Code Lab", keywords: "kmeans sklearn cluster_centers_ labels_ inertia_ n_iter_ n_init transform" },
   );
   return out;
 }

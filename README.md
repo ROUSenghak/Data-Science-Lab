@@ -4,16 +4,19 @@ An interactive platform for learning data science: the mathematics, an in-browse
 
 **Read the math → explore the code → execute it → watch the model learn → inspect each intermediate value.**
 
-The MVP has one complete vertical slice, **linear regression**:
+Two complete vertical slices: **linear regression** and **K-Means clustering**.
 
 | Page | Route | Computes with |
 |---|---|---|
 | Home | `/` | — |
 | Learning catalogue | `/learn` | — |
-| Lesson | `/learn/machine-learning/linear-regression` | Browser (TypeScript) |
+| Lesson: linear regression | `/learn/machine-learning/linear-regression` | Browser (TypeScript) |
+| Lesson: K-Means | `/learn/machine-learning/k-means` | Browser (TypeScript) |
 | Lab catalogue | `/labs` | — |
-| Playground | `/labs/linear-regression` | Browser (TypeScript) |
-| Code Lab | `/code-lab?framework=numpy\|pytorch\|sklearn` | **Real Python** (FastAPI) |
+| Playground: linear regression | `/labs/linear-regression` | Browser (TypeScript) |
+| Playground: K-Means | `/labs/k-means` | Browser (TypeScript) |
+| Code Lab: linear regression | `/code-lab?framework=numpy\|pytorch\|sklearn` | **Real Python** (FastAPI) |
+| Code Lab: K-Means | `/code-lab/k-means?framework=numpy\|sklearn` | **Real Python** (FastAPI) |
 | Projects | `/projects` | Planned only; listed as such |
 
 Topics, labs and projects that do not exist yet are shown as **Planned** and are never linked.
@@ -36,16 +39,20 @@ Open http://localhost:3000. The web app proxies `/api/py/*` to the Python servic
 api/                         Python execution service (FastAPI)
   app/engine.py              template parsing, parameter substitution, line tracer, serialization
   app/experiments/__init__.py  experiment registry: params, steps, watch expressions, honesty notes
-  app/experiments/templates/   runnable scripts: linreg_numpy.py, linreg_pytorch.py, linreg_sklearn.py
+  app/experiments/templates/   runnable scripts: linreg_{numpy,pytorch,sklearn}.py, kmeans_{numpy,sklearn}.py
   app/main.py                GET /experiments, GET /experiments/{id}, POST /experiments/{id}/run
-  tests/                     numerical correctness tests
+  tests/                     numerical correctness tests (test_linear_regression.py, test_kmeans.py)
   scripts/export_fixtures.py writes a real NumPy trajectory for the TypeScript tests
 web/src/
   content/curriculum.ts      modules, topics, labs, projects, search index (single source of truth)
-  lib/ml/                    pure TypeScript math (linreg, seeded RNG) and its tests
+  lib/ml/                    pure TypeScript math (linreg, kmeans, seeded RNG) and its tests
   components/                layout (header, search, theme), math (KaTeX), plot (SVG Chart), code (CodeView), ui
   labs/linear-regression/    plots, browser explorers, playground, lesson widgets
-  codelab/                   API client, wire types, snapshot folding, Inspector, CodeLab
+  labs/k-means/              cluster plot (Voronoi cells), objective plot, Lloyd stepper, init comparison, elbow, lesson widgets
+  codelab/                   API client, wire types, snapshot folding, linear-regression Inspector and CodeLab
+  codelab/useCodeLab.ts      lab-independent state: load, run, replay, keyboard (shared by every Code Lab page)
+  codelab/shell.tsx          lab-independent UI: toolbar, code panel, output, variables, callouts
+  codelab/kmeans/            K-Means trace helpers, inspector and page component
   app/                       routes (Next.js App Router)
 ```
 
@@ -69,6 +76,15 @@ The Playground and the lesson widgets run a TypeScript implementation in the bro
 
 Loss-surface contours are exact. The MSE is quadratic, so its level sets are ellipses computed from the Hessian's eigendecomposition; nothing is sampled or interpolated.
 
+### K-Means specifics
+
+- **One convention everywhere** (NumPy template, TypeScript, tests): squared Euclidean distance; `argmin` ties go to the lowest index; an **empty cluster keeps its previous centroid**; stop after the first iteration in which no label changes (scikit-learn's rule with `tol=0`). scikit-learn relocates empty clusters instead; the page says so.
+- **Two kinds of objective value.** In the NumPy loop, `J` is recorded after the assignment (new labels, old centroids: an intermediate state) and after the update (a completed iteration, i.e. the inertia). Plots draw them as hollow and filled points.
+- **scikit-learn is not traced inside `.fit()`.** Only `cluster_centers_`, `labels_`, `inertia_`, `n_iter_` and `transform()` are shown, plus our own NumPy re-computation as a check.
+- **Cluster colours** are the 8 categorical slots in fixed order (`--viz-cluster-1…8`). Beyond three slots hue alone is not separable in a scatter (validated), so every cluster also has its own marker shape, centroids carry μⱼ labels, and every plot has a data table.
+- Nearest-centroid regions are exact Voronoi cells (half-plane clipping), not a sampled raster.
+- `MAX_ARRAY_LEN` is 2000 so that the n × K distance matrix (n ≤ 200, K ≤ 8) can be traced.
+
 ## Tests
 
 - `api/tests/test_linear_regression.py` (24 tests):
@@ -83,15 +99,17 @@ Loss-surface contours are exact. The MSE is quadratic, so its level sets are ell
   - the final loss belongs to the final parameters, and the printed loss is that value;
   - manifest steps match the template's `@step` markers;
   - run limits stop execution with an error instead of crashing.
+- `api/tests/test_kmeans.py` (61 tests). Guarantees: every traced distance, assignment (including the tie rule), centroid mean, cluster sum and objective equals an independent recomputation; J never increases across half-steps; the stopping rule and final evaluation; the empty-cluster policy; duplicate points with coincident centroids; reproducible seeds; identical labels, centroids, inertia and `n_iter_` as `sklearn.cluster.KMeans` given the same initial centroids, `tol=0` and `max_iter`; consistency of the scikit-learn template's attributes; invalid parameters (422). One empirical, seed-specific test is labelled as such (restarts escaping a local minimum).
+- `web/src/lib/ml/kmeans.test.ts`, `web/src/codelab/kmeans/trace.test.ts` (23 tests): the TypeScript Lloyd iteration reproduces three NumPy runs exactly (including empty clusters and a local minimum), silhouette equals scikit-learn's, J is non-increasing on 147 random cases, Voronoi cells tile the plane and contain exactly their nearest points, duplicates, invalid input, seeds.
 - `web/src/lib/ml/linreg.test.ts`, `web/src/codelab/fold.test.ts` (16 tests): TypeScript math against NumPy and scikit-learn fixtures, the stability bound, ellipse level sets, PRNG determinism, snapshot folding, per-epoch history alignment and step lookup.
 
 ## Adding a lab
 
-**A Python experiment** (e.g. K-Means):
-1. Write `api/app/experiments/templates/kmeans_numpy.py` as a normal runnable script. Put parameters on `name = <number>` lines and add `# @step assign` / `# @step update` markers.
+**A Python experiment** (K-Means is the worked example):
+1. Write `api/app/experiments/templates/<lab>_numpy.py` as a normal runnable script. Put parameters on `name = <number>` lines and add `# @step assign` / `# @step update` markers.
 2. Register an `Experiment` in `api/app/experiments/__init__.py` with its params, step titles, watch expressions (script variables → canonical state) and notes on what is library code versus our own.
 3. Add tests that recompute each traced step independently.
-4. In `web/src/codelab/`, add the lab's state type, an inspector for its step ids, and plots. Generic and reusable: `CodeView`, `StepPipeline` (step list and loop grouping come from the manifest and the trace), the replay controls, `foldSnapshots`/`findStep`, `Chart` and `SeriesPlot`. Give each `StepInfo` a one-line `summary`; the UI shows it.
+4. In `web/src/codelab/<lab>/`, add the lab's state type (in `types.ts`), an inspector for its step ids, and a page component built on `useCodeLab` and `shell.tsx` (see `kmeans/KMeansCodeLab.tsx`). Generic and reusable: `CodeView`, `StepPipeline`, `foldTrace`/`findStepBy`, `Check`, `Chart` and `SeriesPlot`. Add a route under `app/code-lab/<lab>/` and an entry in `CodeLabNav`. Give each `StepInfo` a one-line `summary`; the UI shows it.
 
 **A browser lab:** put pure math in `web/src/lib/ml/<topic>.ts` with tests, components in `web/src/labs/<topic>/`, and a route under `web/src/app/labs/<topic>/`. Then set its status to `available` in `web/src/content/curriculum.ts`, which also makes it searchable.
 

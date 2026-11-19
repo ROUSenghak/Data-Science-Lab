@@ -80,6 +80,8 @@ export function Chart({
   hover,
   onSelect,
   table,
+  aspect,
+  onPlotClick,
   children,
 }: {
   x: AxisSpec;
@@ -90,6 +92,10 @@ export function Chart({
   hover?: { points: HoverPoint[]; mode?: "nearest" | "x" };
   onSelect?: (index: number) => void;
   table?: { columns: string[]; rows: (string | number)[][]; caption?: string };
+  /** "equal": one data unit has the same length on both axes (the smaller range is widened). */
+  aspect?: "equal";
+  /** Click anywhere in the plot area, in data coordinates. Takes precedence over onSelect. */
+  onPlotClick?: (x: number, y: number) => void;
   children: (s: Scales) => ReactNode;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
@@ -100,10 +106,19 @@ export function Chart({
   const innerH = height - M.top - M.bottom;
 
   const { xs, ys } = useMemo(() => {
-    const xs = (x.log ? scaleLog() : scaleLinear()).domain(x.domain).range([0, innerW]);
-    const ys = (y.log ? scaleLog() : scaleLinear()).domain(y.domain).range([innerH, 0]);
+    let xd = x.domain;
+    let yd = y.domain;
+    if (aspect === "equal" && innerW > 0 && innerH > 0 && !x.log && !y.log) {
+      const ux = (xd[1] - xd[0]) / innerW;
+      const uy = (yd[1] - yd[0]) / innerH;
+      const widen = (d: [number, number], len: number): [number, number] => [(d[0] + d[1]) / 2 - len / 2, (d[0] + d[1]) / 2 + len / 2];
+      if (ux > uy) yd = widen(yd, ux * innerH);
+      else xd = widen(xd, uy * innerW);
+    }
+    const xs = (x.log ? scaleLog() : scaleLinear()).domain(xd).range([0, innerW]);
+    const ys = (y.log ? scaleLog() : scaleLinear()).domain(yd).range([innerH, 0]);
     return { xs, ys };
-  }, [x.domain, x.log, y.domain, y.log, innerW, innerH]);
+  }, [x.domain, x.log, y.domain, y.log, innerW, innerH, aspect]);
 
   const xTicks = xs.ticks(x.ticks ?? Math.max(2, Math.floor(innerW / 80)));
   const yTicks = y.log ? ys.ticks().filter((t) => Math.abs(Math.log10(t) - Math.round(Math.log10(t))) < 1e-9) : ys.ticks(y.ticks ?? Math.max(2, Math.floor(innerH / 50)));
@@ -195,11 +210,13 @@ export function Chart({
                   width={innerW}
                   height={innerH}
                   fill="transparent"
-                  style={{ cursor: onSelect ? "pointer" : "crosshair" }}
+                  style={{ cursor: onPlotClick ? "copy" : onSelect ? "pointer" : "crosshair" }}
                   onPointerMove={(e) => setHi(findNearest(...local(e)))}
                   onPointerLeave={() => setHi(null)}
                   onClick={(e) => {
-                    const i = findNearest(...local(e));
+                    const [px, py] = local(e);
+                    if (onPlotClick) return onPlotClick(xs.invert(px), ys.invert(py));
+                    const i = findNearest(px, py);
                     if (i !== null) onSelect?.(i);
                   }}
                 />

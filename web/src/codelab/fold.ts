@@ -1,6 +1,47 @@
 import type { LinRegState, Snapshot, VarView } from "./types";
 
-/** Full execution state at one snapshot, reconstructed from the diff-encoded trace. */
+/** Full execution state at one snapshot, reconstructed from the diff-encoded trace (any lab). */
+export interface TraceFrame<S> {
+  snap: Snapshot<S>;
+  state: S;
+  /** State at the previous snapshot (for "before → after" equations). */
+  prev: S;
+  locals: Record<string, VarView>;
+}
+
+export function foldTrace<S extends object>(snapshots: Snapshot<S>[]): TraceFrame<S>[] {
+  const frames: TraceFrame<S>[] = [];
+  let state = {} as S;
+  let locals: Record<string, VarView> = {};
+  for (const snap of snapshots) {
+    const prev = state;
+    state = { ...state, ...snap.state };
+    locals = { ...locals, ...snap.locals };
+    if (snap.removed.length) {
+      locals = { ...locals };
+      for (const k of snap.removed) delete locals[k];
+    }
+    frames.push({ snap, state, prev, locals });
+  }
+  return frames;
+}
+
+/**
+ * Index of the snapshot for `step` in the same loop iteration as frame `from` (as given by `loopKey`),
+ * falling back to the first snapshot of that step. -1 if the step never ran.
+ */
+export function findStepBy<S>(frames: TraceFrame<S>[], from: number, step: string, loopKey: (s: S) => number | null | undefined): number {
+  const key = frames[from] ? loopKey(frames[from].state) : undefined;
+  let first = -1;
+  for (let k = 0; k < frames.length; k++) {
+    if (frames[k].snap.step !== step) continue;
+    if (first < 0) first = k;
+    if (key != null && loopKey(frames[k].state) === key) return k;
+  }
+  return first;
+}
+
+/** Linear-regression frame. */
 export interface Frame {
   snap: Snapshot;
   state: LinRegState;
@@ -81,14 +122,7 @@ export function lossHistory(frames: Frame[], upTo: number) {
  * (falling back to the first snapshot of that step). -1 if the step never ran.
  */
 export function findStep(frames: Frame[], from: number, step: string): number {
-  const epoch = frames[from]?.state.epoch;
-  let first = -1;
-  for (let k = 0; k < frames.length; k++) {
-    if (frames[k].snap.step !== step) continue;
-    if (first < 0) first = k;
-    if (epoch != null && frames[k].state.epoch === epoch) return k;
-  }
-  return first;
+  return findStepBy(frames, from, step, (s) => s.epoch);
 }
 
 export function paramPath(frames: Frame[], upTo: number): [number, number][] {

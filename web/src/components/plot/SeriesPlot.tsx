@@ -35,6 +35,7 @@ export function SeriesPlot({
   ariaLabel,
   digits = 5,
   xDomain,
+  yFormat,
 }: {
   series: Series[];
   refs?: RefLine[];
@@ -49,6 +50,8 @@ export function SeriesPlot({
   digits?: number;
   /** Fixed x range, so the axis does not rescale while a series is revealed step by step. */
   xDomain?: [number, number];
+  /** Tick format for the y axis (e.g. compact thousands). */
+  yFormat?: (v: number) => string;
 }) {
   const finite = (v: number | null | undefined): v is number => v != null && Number.isFinite(v) && (!log || v > 0);
   const ys = [...series.flatMap((s) => s.points.map((p) => p[1])), ...refs.map((r) => r.value)].filter(finite);
@@ -106,7 +109,7 @@ export function SeriesPlot({
   return (
     <Chart
       x={{ domain: xDom, label: xLabel, format: (v) => String(Math.round(v)) }}
-      y={{ domain: yDom, label: log ? `${yLabel} (log scale)` : yLabel, log }}
+      y={{ domain: yDom, label: log ? `${yLabel} (log scale)` : yLabel, log, format: yFormat }}
       height={height}
       legend={series.length > 1 || refs.length ? legend : undefined}
       ariaLabel={ariaLabel}

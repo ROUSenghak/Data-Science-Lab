@@ -34,7 +34,7 @@ import numpy as np
 STEP_MARKER = re.compile(r"\s*#\s*@step\s+([A-Za-z_][A-Za-z0-9_]*)\s*$")
 PARAM_LINE = re.compile(r"^(?P<name>[A-Za-z_][A-Za-z0-9_]*) = (?P<value>[-+0-9.eE]+)(?P<rest>\s*(#.*)?)$")
 
-MAX_ARRAY_LEN = 500
+MAX_ARRAY_LEN = 2000  # e.g. a K-Means distance matrix: n <= 200 points x k <= 8 centroids
 MAX_SNAPSHOTS = 5000
 MAX_SECONDS = 10.0
 _EXEC_LOCK = threading.Lock()
@@ -219,7 +219,7 @@ def describe(value: Any) -> dict[str, Any] | None:
         lr = value.param_groups[0].get("lr")
         return {"type": type(value).__name__, "value": f"{type(value).__name__}(lr={lr})"}
     if hasattr(value, "get_params") and hasattr(value, "fit"):  # scikit-learn estimator
-        fitted = {k: _fmt_array(np.asarray(getattr(value, k))) for k in ("coef_", "intercept_") if hasattr(value, k)}
+        fitted = {k: _fmt_array(np.asarray(getattr(value, k))) for k in ("coef_", "intercept_", "cluster_centers_", "inertia_", "n_iter_") if hasattr(value, k)}
         extra = "".join(f"\n{k} = {v}" for k, v in fitted.items())
         return {"type": type(value).__name__, "value": repr(value) + extra}
     if isinstance(value, (list, tuple)) and len(value) <= 8:

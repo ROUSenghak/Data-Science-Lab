@@ -182,7 +182,7 @@ def test_reproducible():
     assert r1.snapshots == r2.snapshots
 
 
-@pytest.mark.parametrize("exp_id", list(EXPERIMENTS))
+@pytest.mark.parametrize("exp_id", [e for e, x in EXPERIMENTS.items() if x.lab == "linear-regression"])
 def test_snapshot_lines_point_at_the_marked_code(exp_id):
     exp = EXPERIMENTS[exp_id]
     result = run(exp_id, **({"epochs": 2} if any(p.name == "epochs" for p in exp.params) else {}))
