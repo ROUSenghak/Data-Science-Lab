@@ -23,13 +23,19 @@ function Check({ label, traced, recomputed, tol, refLabel = "browser recomputati
   const diff = Math.abs(traced - recomputed);
   const ok = diff <= tol * Math.max(1, Math.abs(recomputed));
   return (
-    <div className="flex items-start gap-1.5 text-[12px] text-fg-2">
+    <div
+      className="flex items-start gap-1.5 text-[12px] text-fg-2"
+      title={`Traced Python value ${traced} vs ${refLabel} ${recomputed}. Passes if |Δ| ≤ ${tol} · max(1, |value|).`}
+    >
       <span className={ok ? "text-ok" : "text-bad"} aria-hidden>
         {ok ? "✓" : "✗"}
       </span>
       <span>
-        {label}: {refLabel} {fmt(recomputed, 6)} {ok ? "matches" : "differs from"} the traced Python value (|Δ| = {diff === 0 ? "0" : diff.toExponential(1)}
-        {", "}tolerance {tol.toExponential(0)} relative{ok ? "" : " — mismatch"}).
+        {label} = {fmt(recomputed, 6)} by {refLabel}
+        <span className="text-fg-3">
+          {" "}· |Δ| = {diff === 0 ? "0" : diff.toExponential(1)} {ok ? "≤" : ">"} tol {tol.toExponential(0)}
+        </span>
+        {!ok && <b className="text-bad"> mismatch</b>}
       </span>
     </div>
   );
@@ -157,10 +163,14 @@ export function Inspector({ frame, framework, point }: Props) {
       const w = frame.forwardParams?.w ?? s.w ?? 0;
       const b = frame.forwardParams?.b ?? s.b ?? 0;
       const g = n ? gradient(w, b, { x, y }) : { dw: NaN, db: NaN };
+      const ri = n ? w * x[i] + b - y[i] : NaN;
       body = (
         <>
           <TexBlock>{`\\frac{\\partial L}{\\partial w} = \\frac{2}{n}\\sum_{i} (\\hat y_i - y_i)\\,x_i = ${texNum(s.dw, 5)}`}</TexBlock>
           <TexBlock>{`\\frac{\\partial L}{\\partial b} = \\frac{2}{n}\\sum_{i} (\\hat y_i - y_i) = ${texNum(s.db, 5)}`}</TexBlock>
+          {n > 0 && (
+            <TexBlock>{`\\text{point } ${i + 1}\\text{ contributes}\\quad \\tfrac{2}{${n}}\\,r${sub}\\,x${sub} = ${texNum((2 / n) * ri * x[i], 4)},\\qquad \\tfrac{2}{${n}}\\,r${sub} = ${texNum((2 / n) * ri, 4)}`}</TexBlock>
+          )}
           <Explain>
             {torch ? (
               <>
@@ -194,6 +204,23 @@ export function Inspector({ frame, framework, point }: Props) {
       break;
     }
 
+    case "evaluate": {
+      const yh = s.y_hat ?? [];
+      const recomputed = n && s.w != null && s.b != null ? mean(x.map((xi, k) => (s.w! * xi + s.b! - y[k]) ** 2)) : NaN;
+      body = (
+        <>
+          <TexBlock>{`L(\\theta_T) = \\frac{1}{n}\\sum_{i} (w_T x_i + b_T - y_i)^2 = ${texNum(s.loss, 6)}`}</TexBlock>
+          <TexBlock>{`w_T = ${texNum(s.w, 6)},\\qquad b_T = ${texNum(s.b, 6)}`}</TexBlock>
+          <Explain>
+            Inside the loop, <code>loss</code> is computed <i>before</i> each update, so its last value belongs to θ<sub>T−1</sub>. This step evaluates the parameters the script actually returns
+            {torch ? <>, under <code>torch.no_grad()</code> so no graph is built</> : null}.
+          </Explain>
+          {yh.length > 0 && <Check label="L(θ_T)" traced={s.loss} recomputed={recomputed} tol={tol} />}
+        </>
+      );
+      break;
+    }
+
     case "fit": {
       const ls = n ? leastSquares({ x, y }) : null;
       body = (
@@ -202,12 +229,16 @@ export function Inspector({ frame, framework, point }: Props) {
           <TexBlock>{`\\hat w = \\frac{\\sum_i (x_i-\\bar x)(y_i-\\bar y)}{\\sum_i (x_i-\\bar x)^2},\\qquad \\hat b = \\bar y - \\hat w\\,\\bar x`}</TexBlock>
           <TexBlock>{`\\texttt{coef\\_} = ${texNum(s.w, 6)},\\qquad \\texttt{intercept\\_} = ${texNum(s.b, 6)}`}</TexBlock>
           <Explain>
-            <code>.fit()</code> runs as one library call; its internals are not traced. For dense input, LinearRegression centers X and y, then calls <code>scipy.linalg.lstsq</code>. Only <code>coef_</code> and <code>intercept_</code> are exposed.
+            <code>.fit()</code> runs as one library call; its internals are not traced. For dense input, LinearRegression centres X and y, then calls <code>scipy.linalg.lstsq</code> on the centred X. It exposes the solution (<code>coef_</code>, <code>intercept_</code>) and the solver&apos;s <code>rank_</code> and <code>singular_</code>.
           </Explain>
+          {s.singular && (
+            <TexBlock>{`\\texttt{rank\\_} = ${s.rank ?? "\\text{—}"},\\qquad \\texttt{singular\\_} = ${texNum(s.singular[0], 6)} \\;\\big(= \\lVert x - \\bar x\\rVert\\big)`}</TexBlock>
+          )}
           {ls && (
             <>
-              <Check label="ŵ (centered formula)" traced={s.w} recomputed={ls.w} tol={1e-9} />
-              <Check label="b̂" traced={s.b} recomputed={ls.b} tol={1e-9} />
+              <Check label="ŵ" refLabel="centred formula" traced={s.w} recomputed={ls.w} tol={1e-9} />
+              <Check label="b̂" refLabel="centred formula" traced={s.b} recomputed={ls.b} tol={1e-9} />
+              {s.singular && <Check label="singular_" refLabel="‖x − x̄‖" traced={s.singular[0]} recomputed={Math.sqrt(x.reduce((a, v) => a + (v - mean(x)) ** 2, 0))} tol={1e-9} />}
             </>
           )}
         </>

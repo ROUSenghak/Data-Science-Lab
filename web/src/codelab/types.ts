@@ -29,7 +29,7 @@ export interface ExperimentMeta {
   source: string;
   param_lines: Record<string, number>;
   params: ParamSpec[];
-  steps: { id: string; title: string }[];
+  steps: { id: string; title: string; summary: string }[];
   step_groups: { id: string; start: number; end: number }[];
   environment: Environment;
 }
@@ -55,6 +55,9 @@ export interface LinRegState {
   epoch?: number | null;
   lr?: number | null;
   theta?: number[] | null;
+  /** scikit-learn lstsq outputs (rank_, singular_). */
+  rank?: number | null;
+  singular?: number[] | null;
 }
 
 export interface Snapshot {

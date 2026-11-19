@@ -14,6 +14,7 @@ y = 2.0 * x + 1.0 + rng.normal(0, noise_std, size=n_samples)  # @step data
 X = x.reshape(-1, 1)  # @step data
 
 # scikit-learn solves least squares directly; .fit() exposes only its results
+# (coef_, intercept_, and the solver's rank_ and singular_)
 model = LinearRegression()
 model.fit(X, y)  # @step fit
 w, b = model.coef_[0], model.intercept_  # @step fit

@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from app.engine import ParamError
+from app.engine import ParamError, StepGroup, run_source
 from app.experiments import EXPERIMENTS
 from app.main import app
 
@@ -94,6 +94,32 @@ def test_numpy_divergence_is_reported_not_crashed():
     assert losses[5] > losses[0]  # loss grows
 
 
+@pytest.mark.parametrize("exp_id", ["linreg-numpy", "linreg-pytorch"])
+def test_final_loss_belongs_to_final_parameters(exp_id):
+    # In the loop, loss is evaluated before each update. The final evaluate step must
+    # report L(w_T, b_T), and the printed loss must be that value.
+    result = run(exp_id, epochs=7, learning_rate=0.05)
+    states = fold(result.snapshots)
+    snap, final = states[-1]
+    assert snap["step"] == "evaluate"
+    x, y = np.array(final["x"]), np.array(final["y"])
+    expected = np.mean((final["w"] * x + final["b"] - y) ** 2)
+    tol = 1e-4 if exp_id == "linreg-pytorch" else 1e-12
+    assert final["loss"] == pytest.approx(expected, rel=tol)
+    in_loop = [st["loss"] for s, st in states if s["step"] == "loss"]
+    assert final["loss"] < in_loop[-1]  # one more descent step on a convex loss
+    assert f"loss = {final['loss']:.4f}" in result.stdout
+    if exp_id == "linreg-pytorch":
+        assert "grad_fn" not in snap["locals"].get("y_hat", {})  # evaluated under no_grad
+
+
+def test_manifest_steps_match_template_markers():
+    for exp in EXPERIMENTS.values():
+        marked = {g.id for g in exp.tmpl.groups}
+        declared = {s.id for s in exp.steps}
+        assert marked == declared, exp.id
+
+
 # ------------------------------------------------------------------ PyTorch
 
 
@@ -132,6 +158,14 @@ def test_sklearn_matches_normal_equations():
     assert final["loss"] == pytest.approx(np.mean((theta[0] * x + theta[1] - y) ** 2), rel=1e-10)
 
 
+def test_sklearn_solver_outputs_are_reported_truthfully():
+    # LinearRegression runs lstsq on the centred X: one singular value, sqrt(sum (x - mean)^2).
+    final = fold(run("linreg-sklearn", seed=5, n_samples=40).snapshots)[-1][1]
+    x = np.array(final["x"])
+    assert final["rank"] == 1
+    assert final["singular"] == pytest.approx([np.sqrt(np.sum((x - x.mean()) ** 2))], rel=1e-10)
+
+
 def test_same_seed_produces_same_data_across_frameworks():
     a = fold(run("linreg-numpy", seed=7, epochs=1).snapshots)[0][1]
     b = fold(run("linreg-sklearn", seed=7).snapshots)[0][1]
@@ -160,6 +194,7 @@ def test_snapshot_lines_point_at_the_marked_code(exp_id):
         "update": ("learning_rate * d", "optimizer.step()"),
         "fit": ("model.fit(X, y)",),
         "zero_grad": ("optimizer.zero_grad()",),
+        "evaluate": ("w * x + b", "model(X)"),
     }
     for s in result.snapshots:
         start, end = s["lines"]
@@ -169,6 +204,14 @@ def test_snapshot_lines_point_at_the_marked_code(exp_id):
                 break
         else:
             assert s["step"] not in expected, f"{s['step']} -> {code!r}"
+
+
+def test_run_limits_stop_execution_with_an_error():
+    src = "total = 0\nfor i in range(100):\n    total = total + i\n"
+    tmpl_groups = [StepGroup("add", 3, 3)]
+    result = run_source(src, "<limit-test>", tmpl_groups, {"total": "total"}, max_snapshots=10)
+    assert result.error is not None and "RunLimitExceeded" in result.error
+    assert len(result.snapshots) == 10
 
 
 def test_rendered_source_contains_parameters():
@@ -214,7 +257,9 @@ def test_api_roundtrip():
     r = client.post("/experiments/linreg-numpy/run", json={"params": {"epochs": 3}})
     assert r.status_code == 200
     body = r.json()
-    assert body["params"]["epochs"] == 3 and len(body["snapshots"]) == 2 + 4 * 3
+    assert body["params"]["epochs"] == 3 and len(body["snapshots"]) == 2 + 4 * 3 + 1
     assert client.post("/experiments/linreg-numpy/run", json={"params": {"epochs": 999}}).status_code == 422
     assert client.post("/experiments/nope/run", json={}).status_code == 404
     assert client.post("/experiments/linreg-numpy/run", json={"params": {"x": "__import__('os')"}}).status_code == 422
+    # integers too large for float conversion are rejected, not a 500
+    assert client.post("/experiments/linreg-numpy/run", json={"params": {"epochs": 10**400}}).status_code == 422

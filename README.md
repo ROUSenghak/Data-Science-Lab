@@ -58,7 +58,8 @@ web/src/
    - a debugger-style view of the namespace.
 
    Snapshots are diff-encoded; `codelab/fold.ts` rebuilds the full states.
-3. **Library internals are not invented.** PyTorch gradients come from `loss.backward()` and are read from `.grad`; updates come from `torch.optim.SGD`. For scikit-learn, `.fit()` is a single untraced call, and the page says so. Only `coef_` and `intercept_` are shown, with a separate normal-equations solve as an independent check.
+3. **Library internals are not invented.** PyTorch gradients come from `loss.backward()` and are read from `.grad`; updates come from `torch.optim.SGD`. For scikit-learn, `.fit()` is a single untraced call, and the page says so. Only what the estimator exposes is shown (`coef_`, `intercept_`, and the `lstsq` outputs `rank_`, `singular_`), with a separate normal-equations solve as an independent check.
+6. **Loss and parameters always match.** Inside the loop, `loss` is computed before each update, so the GD templates end with an `evaluate` step that computes L(θ_T) for the returned parameters. The training history plots θ_t, L(θ_t) and ∇L(θ_t) of the same epoch t; the final evaluation is epoch T.
 4. **Browser checks are labelled.** The inspector substitutes traced Python values into each equation. Each "✓" line is a separate browser recomputation, compared at float64 tolerance (1e-9), or 1e-4 for PyTorch's float32.
 5. **Reproducible.** Every template seeds `np.random.default_rng(seed)`, and PyTorch also calls `torch.manual_seed`. The same seed gives the same data in all three implementations, which is tested.
 
@@ -70,7 +71,7 @@ Loss-surface contours are exact. The MSE is quadratic, so its level sets are ell
 
 ## Tests
 
-- `api/tests/test_linear_regression.py` (19 tests):
+- `api/tests/test_linear_regression.py` (24 tests):
   - every traced forward pass, loss, gradient and update equals the hand-derived formula;
   - gradients match finite differences;
   - gradient descent follows the exact linear error dynamics `θ_t − θ* = (I − ηH)^t (θ_0 − θ*)`;
@@ -78,8 +79,11 @@ Loss-surface contours are exact. The MSE is quadratic, so its level sets are ell
   - PyTorch autograd matches the analytic gradient and the NumPy trajectory;
   - scikit-learn matches the normal equations;
   - snapshot lines point at the right code;
-  - invalid parameters are rejected (422).
-- `web/src/lib/ml/linreg.test.ts`, `web/src/codelab/fold.test.ts` (13 tests): TypeScript math against NumPy and scikit-learn fixtures, the stability bound, ellipse level sets, PRNG determinism, and snapshot folding.
+  - invalid parameters are rejected (422), including integers too large for a float;
+  - the final loss belongs to the final parameters, and the printed loss is that value;
+  - manifest steps match the template's `@step` markers;
+  - run limits stop execution with an error instead of crashing.
+- `web/src/lib/ml/linreg.test.ts`, `web/src/codelab/fold.test.ts` (16 tests): TypeScript math against NumPy and scikit-learn fixtures, the stability bound, ellipse level sets, PRNG determinism, snapshot folding, per-epoch history alignment and step lookup.
 
 ## Adding a lab
 
@@ -87,7 +91,7 @@ Loss-surface contours are exact. The MSE is quadratic, so its level sets are ell
 1. Write `api/app/experiments/templates/kmeans_numpy.py` as a normal runnable script. Put parameters on `name = <number>` lines and add `# @step assign` / `# @step update` markers.
 2. Register an `Experiment` in `api/app/experiments/__init__.py` with its params, step titles, watch expressions (script variables → canonical state) and notes on what is library code versus our own.
 3. Add tests that recompute each traced step independently.
-4. In `web/src/codelab/`, add the lab's state type, an inspector for its step ids, and plots. `CodeView`, the replay controls, `foldSnapshots` and `Chart` are generic.
+4. In `web/src/codelab/`, add the lab's state type, an inspector for its step ids, and plots. Generic and reusable: `CodeView`, `StepPipeline` (step list and loop grouping come from the manifest and the trace), the replay controls, `foldSnapshots`/`findStep`, `Chart` and `SeriesPlot`. Give each `StepInfo` a one-line `summary`; the UI shows it.
 
 **A browser lab:** put pure math in `web/src/lib/ml/<topic>.ts` with tests, components in `web/src/labs/<topic>/`, and a route under `web/src/app/labs/<topic>/`. Then set its status to `available` in `web/src/content/curriculum.ts`, which also makes it searchable.
 
@@ -95,4 +99,11 @@ Loss-surface contours are exact. The MSE is quadratic, so its level sets are ell
 
 - Next.js 16 with Cache Components; all pages prerender statically. Client components that read the URL (`useSearchParams`) sit inside `<Suspense>`.
 - Plot colours use the roles defined in `globals.css` (`--viz-model`, `--viz-residual`, `--viz-alt`, …), with separate light and dark values. Every chart has axis labels, a legend, hover values and a data-table view.
-- The execution service serializes runs with a lock, because tracing and stdout capture are process-global. Run time is bounded by parameter ranges: epochs ≤ 200, n ≤ 100. Before any public deployment, add per-run process isolation and timeouts.
+- The execution service serializes runs with a lock, because tracing and stdout capture are process-global. Run time is bounded by parameter ranges (epochs ≤ 200, n ≤ 100) and by a 10 s / 5000-snapshot budget checked between template lines.
+
+### Blockers for a public deployment
+
+- Runs execute in the API process: there is no sandbox, memory limit or CPU limit. Use one subprocess (or container) per run, with resource limits and a hard kill.
+- The time budget is checked between template lines, so it cannot interrupt a long library call.
+- The global lock lets one slow run block every other user. There is no rate limiting or authentication.
+- Templates run with full builtins. That is safe only because templates are trusted repository files; never accept source code from clients.

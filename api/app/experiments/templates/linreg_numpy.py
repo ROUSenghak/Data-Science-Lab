@@ -26,4 +26,8 @@ for epoch in range(epochs):
     w = w - learning_rate * dw  # @step update
     b = b - learning_rate * db  # @step update
 
+# In the loop, loss is computed before each update; evaluate the final (w, b)
+y_hat = w * x + b  # @step evaluate
+loss = np.mean((y_hat - y) ** 2)  # @step evaluate
+
 print(f"after {epochs} epochs: w = {w:.4f}, b = {b:.4f}, loss = {loss:.4f}")

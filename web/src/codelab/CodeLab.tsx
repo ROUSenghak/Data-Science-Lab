@@ -1,16 +1,19 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CodeView, isParamValid } from "@/components/code/CodeView";
 import { Button, Icon, Segmented } from "@/components/ui/controls";
 import { Badge, Callout, ExecutionBadge, Panel } from "@/components/ui/primitives";
 import { fmt } from "@/lib/format";
-import { leastSquares } from "@/lib/ml/linreg";
-import { DataFitPlot, LossCurvePlot, LossSurfacePlot, type FitLine } from "@/labs/linear-regression/plots";
+import { leastSquares, stability } from "@/lib/ml/linreg";
+import { DataFitPlot, LossSurfacePlot, type FitLine } from "@/labs/linear-regression/plots";
 import { BackendUnavailable, getExperiment, runExperiment } from "./api";
-import { foldSnapshots, lossHistory, paramPath } from "./fold";
+import { findStep, foldSnapshots, paramPath, trainingHistory } from "./fold";
 import { Inspector } from "./Inspector";
+import { MAX_RUNS, RunComparison, summarizeRun, type RunSummary } from "./RunComparison";
+import { StepPipeline } from "./StepPipeline";
+import { TrainingHistory } from "./TrainingHistory";
 import type { ExperimentMeta, RunResponse } from "./types";
 
 const FRAMEWORKS = [
@@ -38,8 +41,10 @@ export function CodeLab() {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<keyof typeof SPEEDS>("normal");
   const [point, setPoint] = useState(0);
-  const [logLoss, setLogLoss] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  /** Recent gradient-descent runs per experiment, newest last (for comparison). */
+  const [history, setHistory] = useState<Record<string, RunSummary[]>>({});
+  const serials = useRef<Record<string, number>>({});
 
   const meta = metas[exp.id];
   const run = runs[exp.id];
@@ -53,6 +58,12 @@ export function CodeLab() {
       const res = await runExperiment(id, params);
       setRuns((r) => ({ ...r, [id]: res }));
       setIdx(0);
+      if ("epochs" in res.params) {
+        const serial = serials.current[id] ?? 0;
+        serials.current[id] = serial + 1;
+        const summary = summarizeRun(res, foldSnapshots(res.snapshots), serial);
+        if (summary) setHistory((h) => ({ ...h, [id]: [...(h[id] ?? []), summary].slice(-MAX_RUNS) }));
+      }
     } catch (e) {
       if (e instanceof BackendUnavailable) setLoadError({ offline: true, message: e.message });
       else setRunError((e as Error).message);
@@ -102,8 +113,8 @@ export function CodeLab() {
   // keyboard: ← / → step through snapshots
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement;
-      if (t.closest("input, textarea, select, [role=dialog]")) return;
+      const t = e.target;
+      if (t instanceof Element && t.closest("input, textarea, select, [role=dialog]")) return;
       if (e.key === "ArrowRight") setIdx((v) => Math.min(last, v + 1));
       else if (e.key === "ArrowLeft") setIdx((v) => Math.max(0, v - 1));
       else return;
@@ -123,6 +134,20 @@ export function CodeLab() {
     const url = new URL(window.location.href);
     url.searchParams.set("framework", key);
     window.history.replaceState(null, "", url);
+  };
+
+  const stepCounts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const f of frames) c[f.snap.step] = (c[f.snap.step] ?? 0) + 1;
+    return c;
+  }, [frames]);
+
+  const jumpToStep = (step: string) => {
+    const k = findStep(frames, i, step);
+    if (k >= 0) {
+      setPlaying(false);
+      setIdx(k);
+    }
   };
 
   const nextEpoch = () => {
@@ -158,12 +183,34 @@ export function CodeLab() {
     );
   }
 
-  const stepTitle = meta?.steps.find((s) => s.id === frame?.snap.step)?.title ?? frame?.snap.step;
+  const stepInfo = meta?.steps.find((s) => s.id === frame?.snap.step);
+  const stepTitle = stepInfo?.title ?? frame?.snap.step;
   const st = frame?.state;
   const data = st?.x && st?.y ? { x: st.x, y: st.y } : null;
   const ls = data ? leastSquares(data) : null;
+  const stab = data ? stability(data) : null;
   const isGD = fw !== "sklearn";
   const epochs = run?.params.epochs ?? 1;
+  const runHistory = history[exp.id] ?? [];
+  const currentRun = runHistory[runHistory.length - 1] ?? null;
+  const earlierRuns = runHistory.slice(0, -1);
+  /** Epoch of the selected snapshot; the final evaluation counts as epoch T. */
+  const curEpoch = frame?.snap.step === "evaluate" ? (st?.epoch ?? -1) + 1 : (st?.epoch ?? null);
+
+  const runWithLR = (lr: number) => {
+    if (!vals) return;
+    const next = { ...vals, learning_rate: lr };
+    setValues((all) => ({ ...all, [exp.id]: next }));
+    execute(exp.id, next);
+  };
+  const lrPresets = stab
+    ? [
+        { label: "too small", lr: 0.05 * stab.criticalLR, title: "η = 0.05 · 2/λmax: stable but slow" },
+        { label: "no overshoot", lr: 1 / stab.lambdaMax, title: "η = 1/λmax: the steep direction is solved in one step; the flat one stays slow" },
+        { label: "fastest fixed η", lr: 2 / (stab.lambdaMin + stab.lambdaMax), title: "η = 2/(λmin + λmax): best worst-case rate; oscillates along the steep direction" },
+        { label: "diverges", lr: 1.05 * stab.criticalLR, title: "η = 1.05 · 2/λmax: just above the stability limit" },
+      ].map((p) => ({ ...p, lr: Math.min(0.5, Math.max(0.0001, Math.round(p.lr * 1e4) / 1e4)) }))
+    : [];
 
   const fitLines: FitLine[] = [];
   if (frame && st?.w != null && st?.b != null) {
@@ -211,17 +258,24 @@ export function CodeLab() {
             </span>
           </div>
         </div>
-        {frame && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-fg-2">
-            <span>
-              Step: <span className="font-medium text-fg">{stepTitle}</span>
+        {frame && meta && (
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+            <StepPipeline steps={meta.steps} counts={stepCounts} current={frame.snap.step} onSelect={jumpToStep} />
+            <span className="flex items-center gap-3 font-mono text-[12px] tabular-nums text-fg-2">
+              {curEpoch != null && (
+                <span>
+                  epoch {curEpoch}
+                  <span className="text-fg-3">/{epochs}</span>
+                </span>
+              )}
+              <span>
+                line {frame.snap.lines[0]}
+                {frame.snap.lines[1] !== frame.snap.lines[0] ? `–${frame.snap.lines[1]}` : ""}
+              </span>
             </span>
-            {st?.epoch != null && <span className="font-mono tabular-nums">epoch {st.epoch}</span>}
-            <span className="font-mono tabular-nums">
-              line {frame.snap.lines[0]}
-              {frame.snap.lines[1] !== frame.snap.lines[0] ? `–${frame.snap.lines[1]}` : ""}
+            <span className="hidden text-[11.5px] text-fg-3 xl:inline" title="Python ran once. Each snapshot is the program state right after the highlighted lines executed.">
+              Replay of one recorded Python run
             </span>
-            <span className="hidden text-fg-3 sm:inline">Replaying a recorded trace: Python ran once; each snapshot is the program state after the highlighted lines.</span>
           </div>
         )}
       </div>
@@ -240,7 +294,7 @@ export function CodeLab() {
         <div className="min-w-0 space-y-3 xl:sticky xl:top-[9.5rem] xl:self-start">
           <Panel
             title={
-              <span className="flex items-center gap-2">
+              <span className="flex flex-wrap items-center gap-2">
                 <span className="font-mono">{exp.file}</span>
                 {meta && (meta.execution === "library" ? <Badge tone="accent">Library computation</Badge> : <Badge>Educational implementation</Badge>)}
               </span>
@@ -272,13 +326,32 @@ export function CodeLab() {
                   {meta.notes.map((n) => (
                     <li key={n}>· {n}</li>
                   ))}
-                  <li>· Edit the highlighted numbers, then Run. Click a marked line (grey gutter) to jump to its next snapshot.</li>
+                  <li>· Edit the boxed numbers, then Run. Click a marked line (grey gutter) or a step above to jump to it.</li>
                 </ul>
               </>
             ) : (
               <div className="py-10 text-center text-sm text-fg-3">Loading source from the execution service…</div>
             )}
           </Panel>
+          {isGD && stab && run && meta && vals && (
+            <Panel title="Learning-rate experiments">
+              <p className="text-[12.5px] text-fg-2">
+                Stability limit of this data: <span className="font-mono tabular-nums text-fg">η<sub>crit</sub> = 2/λ<sub>max</sub> = {fmt(stab.criticalLR, 4)}</span>
+                {" · "}condition number <span className="font-mono tabular-nums">κ = {fmt(stab.condition, 1)}</span>
+                {" · "}last run: <span className="font-mono tabular-nums text-fg">η = {fmt(run.params.learning_rate, 4)} = {fmt(run.params.learning_rate / stab.criticalLR, 2)} η<sub>crit</sub></span>
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {lrPresets.map((p) => (
+                  <Button key={p.label} onClick={() => runWithLR(p.lr)} disabled={running} title={p.title}>
+                    {p.label} <span className="font-mono text-[11.5px] text-fg-3">η = {p.lr}</span>
+                  </Button>
+                ))}
+              </div>
+              <p className="mt-2 text-[11.5px] text-fg-3">
+                Each button sets <code className="font-mono">learning_rate</code> and runs the script. λ are the eigenvalues of the Hessian H = (2/n)AᵀA, computed in the browser from the traced x. Compare runs under Training history.
+              </p>
+            </Panel>
+          )}
           {run && (
             <Panel title="Program output">
               <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[12px] text-fg">{run.stdout || "(no output)"}</pre>
@@ -298,9 +371,12 @@ export function CodeLab() {
 
         {/* B + C. inspector and visualizations */}
         <div className="min-w-0 space-y-4">
-          <Panel title={<>Mathematical inspector{stepTitle ? <> · <span className="text-fg">{stepTitle}</span></> : null}</>}>
+          <Panel title={<>Mathematics{stepTitle ? <> · <span className="text-fg">{stepTitle}</span></> : null}</>}>
             {frame ? (
-              <Inspector frame={frame} framework={fw} point={point} />
+              <>
+                {stepInfo?.summary && <p className="mb-1 text-[13px] text-fg-2">{stepInfo.summary}</p>}
+                <Inspector frame={frame} framework={fw} point={point} />
+              </>
             ) : (
               <div className="py-6 text-center text-sm text-fg-3">{running ? "Executing Python…" : "Run the script to record snapshots."}</div>
             )}
@@ -324,11 +400,16 @@ export function CodeLab() {
                   <p className="mt-1 text-[11.5px] text-fg-3">Level sets are computed exactly in the browser from the traced x, y; the path is the traced (w, b).</p>
                 </Panel>
                 {isGD ? (
-                  <Panel
-                    title="Training loss"
-                    actions={<Segmented ariaLabel="Loss axis scale" value={logLoss ? "log" : "lin"} onChange={(v) => setLogLoss(v === "log")} options={[{ value: "lin", label: "linear" }, { value: "log", label: "log" }]} />}
-                  >
-                    <LossCurvePlot losses={lossHistory(frames, i)} totalEpochs={epochs} minimum={ls?.loss} current={st?.epoch ?? null} log={logLoss} height={260} />
+                  <Panel title="Training history">
+                    <TrainingHistory
+                      history={trainingHistory(frames, i)}
+                      current={curEpoch}
+                      epochs={epochs}
+                      color={currentRun?.color ?? "var(--viz-model)"}
+                      optimum={ls}
+                      earlier={earlierRuns}
+                      diverged={currentRun?.outcome === "diverged"}
+                    />
                   </Panel>
                 ) : (
                   <Panel title="Result">
@@ -357,6 +438,11 @@ export function CodeLab() {
                   </Panel>
                 )}
               </div>
+              {isGD && runHistory.length > 0 && (
+                <Panel title="Run comparison">
+                  <RunComparison runs={runHistory} currentSerial={currentRun?.serial ?? null} onClear={() => setHistory((h) => ({ ...h, [exp.id]: runHistory.slice(-1) }))} />
+                </Panel>
+              )}
             </>
           )}
 

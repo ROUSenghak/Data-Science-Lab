@@ -233,7 +233,7 @@ export function LossSurfacePlot({
             y: b,
             content: (
               <div className="font-mono tabular-nums">
-                <div className="font-sans font-medium">step {i}</div>w = {fmt(w)}
+                <div className="font-sans font-medium">θ at epoch {i}</div>w = {fmt(w)}
                 <br />b = {fmt(b)}
                 <br />L = {fmt(mse(w, b, data))}
               </div>

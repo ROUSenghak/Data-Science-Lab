@@ -33,5 +33,10 @@ for epoch in range(epochs):
     loss.backward()  # @step backward
     optimizer.step()  # @step update
 
+# In the loop, loss is computed before each update; evaluate the final parameters
+with torch.no_grad():
+    y_hat = model(X)  # @step evaluate
+    loss = loss_fn(y_hat, y)  # @step evaluate
+
 w, b = model.weight.item(), model.bias.item()
 print(f"after {epochs} epochs: w = {w:.4f}, b = {b:.4f}, loss = {loss.item():.4f}")

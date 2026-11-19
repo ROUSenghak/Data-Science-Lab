@@ -22,6 +22,10 @@
   --viz-model: #2a78d6;
   --viz-residual: #eb6834;
   --viz-alt: #1baf7a;
+  /* earlier runs in comparisons (categorical slots 4, 5, 7; validated with the slots above) */
+  --viz-run-1: #eda100;
+  --viz-run-2: #e87ba4;
+  --viz-run-3: #6250d6;
   --viz-grid: #ecebe7;
   --viz-axis: #a5a39c;
   --viz-seq-lo: #f3f7fd;
@@ -65,6 +69,9 @@
   --viz-model: #3987e5;
   --viz-residual: #d95926;
   --viz-alt: #199e70;
+  --viz-run-1: #c98500;
+  --viz-run-2: #d55181;
+  --viz-run-3: #9085e9;
   --viz-grid: #262624;
   --viz-axis: #5f5e58;
   --viz-seq-lo: #1a1a19;

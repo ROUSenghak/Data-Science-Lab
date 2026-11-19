@@ -35,11 +35,17 @@ STEP_MARKER = re.compile(r"\s*#\s*@step\s+([A-Za-z_][A-Za-z0-9_]*)\s*$")
 PARAM_LINE = re.compile(r"^(?P<name>[A-Za-z_][A-Za-z0-9_]*) = (?P<value>[-+0-9.eE]+)(?P<rest>\s*(#.*)?)$")
 
 MAX_ARRAY_LEN = 500
+MAX_SNAPSHOTS = 5000
+MAX_SECONDS = 10.0
 _EXEC_LOCK = threading.Lock()
 
 
 class ParamError(ValueError):
     pass
+
+
+class RunLimitExceeded(Exception):
+    """Raised inside the traced script when a run exceeds its time or snapshot budget."""
 
 
 @dataclass(frozen=True)
@@ -56,6 +62,9 @@ class Param:
     def coerce(self, raw: Any) -> int | float:
         if isinstance(raw, bool) or not isinstance(raw, (int, float)):
             raise ParamError(f"{self.name}: expected a number")
+        if isinstance(raw, int) and not (self.min <= raw <= self.max):
+            # exact int comparison: float(raw) would overflow for huge integers
+            raise ParamError(f"{self.name}: must be in [{self.min}, {self.max}]")
         if not math.isfinite(raw):
             raise ParamError(f"{self.name}: must be finite")
         if self.kind == "int":
@@ -233,6 +242,8 @@ class _Tracer:
     ns: dict[str, Any]
     groups_by_end: dict[int, StepGroup]
     watches: dict[str, str]
+    deadline: float
+    max_snapshots: int
     snapshots: list[dict[str, Any]] = field(default_factory=list)
     _pending: StepGroup | None = None
     _prev_state: dict[str, Any] = field(default_factory=dict)
@@ -244,6 +255,8 @@ class _Tracer:
 
     def local_trace(self, frame: types.FrameType, event: str, arg: Any):
         if event in ("line", "return"):
+            if time.perf_counter() > self.deadline:
+                raise RunLimitExceeded(f"run exceeded {MAX_SECONDS:g} s")
             if self._pending is not None:
                 self._record(self._pending)
                 self._pending = None
@@ -254,6 +267,8 @@ class _Tracer:
         return self.local_trace
 
     def _record(self, group: StepGroup) -> None:
+        if len(self.snapshots) >= self.max_snapshots:
+            raise RunLimitExceeded(f"more than {self.max_snapshots} snapshots")
         state: dict[str, Any] = {}
         for key, expr in self.watches.items():
             try:
@@ -295,17 +310,24 @@ def run_source(
     filename: str,
     groups: list[StepGroup],
     watches: dict[str, str],
-    max_snapshots: int = 5000,
+    max_snapshots: int = MAX_SNAPSHOTS,
 ) -> RunResult:
+    """Execute a trusted template under the tracer.
+
+    Limits are enforced from the trace function, i.e. between lines of the
+    template. A single long library call cannot be interrupted this way; real
+    isolation (a subprocess with CPU/memory limits) is required before any
+    public deployment.
+    """
     code = compile(source, filename, "exec")
     ns: dict[str, Any] = {"__name__": "__experiment__", "__builtins__": __builtins__}
-    tracer = _Tracer(code, ns, {g.end: g for g in groups}, watches)
     out = io.StringIO()
     error: str | None = None
     caught: list[str] = []
 
     with _EXEC_LOCK:
         t0 = time.perf_counter()
+        tracer = _Tracer(code, ns, {g.end: g for g in groups}, watches, t0 + MAX_SECONDS, max_snapshots)
         with warnings.catch_warnings(record=True) as w, redirect_stdout(out):
             warnings.simplefilter("always")
             prev = sys.gettrace()
@@ -327,6 +349,4 @@ def run_source(
                     caught.append(msg)
         elapsed = (time.perf_counter() - t0) * 1000
 
-    if len(tracer.snapshots) > max_snapshots:
-        raise RuntimeError("too many snapshots")
     return RunResult(source, tracer.snapshots, out.getvalue(), caught, error, elapsed)

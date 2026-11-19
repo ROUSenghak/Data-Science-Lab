@@ -69,7 +69,7 @@ export function Panel({ title, actions, children, className = "" }: { title?: Re
   return (
     <section className={`min-w-0 rounded-lg border border-line bg-surface ${className}`}>
       {(title || actions) && (
-        <header className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
+        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2">
           <h3 className="text-[13px] font-medium text-fg-2">{title}</h3>
           {actions}
         </header>

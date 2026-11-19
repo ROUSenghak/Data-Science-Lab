@@ -22,6 +22,7 @@ TEMPLATES = Path(__file__).parent / "templates"
 class StepInfo:
     id: str
     title: str
+    summary: str = ""  # one line: what this step computes
 
 
 @dataclass
@@ -108,12 +109,13 @@ _register(
         template="linreg_numpy.py",
         params=_data_params() + _gd_params(),
         steps=[
-            StepInfo("data", "Generate data"),
-            StepInfo("init", "Initialise parameters"),
-            StepInfo("forward", "Forward pass"),
-            StepInfo("loss", "Loss"),
-            StepInfo("gradient", "Gradients"),
-            StepInfo("update", "Parameter update"),
+            StepInfo("data", "Generate data", "Draw x ~ U(0, 4) and y = 2x + 1 + noise with a fixed seed."),
+            StepInfo("init", "Initialise parameters", "Set the starting point (w₀, b₀)."),
+            StepInfo("forward", "Forward pass", "Predict ŷ = w·x + b for every point."),
+            StepInfo("loss", "Loss", "Mean of squared residuals ŷ − y."),
+            StepInfo("gradient", "Gradients", "∂L/∂w and ∂L/∂b from the hand-derived formulas."),
+            StepInfo("update", "Parameter update", "Step against the gradient: θ ← θ − η∇L."),
+            StepInfo("evaluate", "Final loss", "Loss of the trained parameters θ_T, after the last update."),
         ],
         watches={
             "x": "x",
@@ -145,13 +147,14 @@ _register(
         template="linreg_pytorch.py",
         params=_data_params() + _gd_params(),
         steps=[
-            StepInfo("data", "Tensors"),
-            StepInfo("init", "Initialise nn.Linear"),
-            StepInfo("zero_grad", "optimizer.zero_grad()"),
-            StepInfo("forward", "Forward pass"),
-            StepInfo("loss", "Loss"),
-            StepInfo("backward", "loss.backward()"),
-            StepInfo("update", "optimizer.step()"),
+            StepInfo("data", "Tensors", "Same NumPy data, copied to float32 tensors of shape (n, 1)."),
+            StepInfo("init", "Initialise nn.Linear", "Overwrite the layer's random weight and bias with (w₀, b₀)."),
+            StepInfo("zero_grad", "optimizer.zero_grad()", "Clear .grad; backward() would otherwise accumulate into it."),
+            StepInfo("forward", "Forward pass", "model(X) computes X·Wᵀ + b and records the graph for autograd."),
+            StepInfo("loss", "Loss", "nn.MSELoss(): mean of squared residuals, added to the graph."),
+            StepInfo("backward", "loss.backward()", "Autograd fills weight.grad and bias.grad."),
+            StepInfo("update", "optimizer.step()", "SGD updates the parameters in place: θ ← θ − η·grad."),
+            StepInfo("evaluate", "Final loss (no_grad)", "Loss of the trained parameters θ_T, without recording a graph."),
         ],
         watches={
             "x": "X.squeeze(1)",
@@ -183,11 +186,11 @@ _register(
         template="linreg_sklearn.py",
         params=_data_params(),
         steps=[
-            StepInfo("data", "Data and design matrix"),
-            StepInfo("fit", "model.fit(X, y)"),
-            StepInfo("predict", "model.predict(X)"),
-            StepInfo("loss", "Mean squared error"),
-            StepInfo("check", "Normal-equations check"),
+            StepInfo("data", "Data and design matrix", "Same data; X reshaped to (n, 1)."),
+            StepInfo("fit", "model.fit(X, y)", "One untraced library call: centred least squares via scipy.linalg.lstsq."),
+            StepInfo("predict", "model.predict(X)", "Evaluate ŷ = X·coef_ + intercept_."),
+            StepInfo("loss", "Mean squared error", "Training MSE of the fitted line."),
+            StepInfo("check", "Normal-equations check", "Our own solve of AᵀAθ = Aᵀy, independent of scikit-learn."),
         ],
         watches={
             "x": "x",
@@ -197,10 +200,12 @@ _register(
             "y_hat": "y_hat",
             "loss": "mse",
             "theta": "theta",
+            "rank": "model.rank_",
+            "singular": "model.singular_",
         },
         notes=[
             "model.fit() is a single library call: its internal computations are not traced here.",
-            "LinearRegression centres the data and calls a least-squares solver (scipy.linalg.lstsq); only coef_ and intercept_ are exposed.",
+            "LinearRegression centres X and y, then calls scipy.linalg.lstsq; it exposes coef_, intercept_, rank_ and singular_ (singular values of the centred X).",
             "The final step re-derives the solution with our own NumPy code as an independent check.",
         ],
     )
