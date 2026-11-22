@@ -61,6 +61,13 @@ export function objective(X: Vec2[], C: Vec2[], labels: number[]): number {
   return s;
 }
 
+/** Jⱼ = Σ_{i: cᵢ = j} ‖xᵢ − μⱼ‖², each cluster's share of J (Σⱼ Jⱼ = J). */
+export function clusterObjectives(X: Vec2[], C: Vec2[], labels: number[]): number[] {
+  const out = new Array<number>(C.length).fill(0);
+  for (let i = 0; i < X.length; i++) out[labels[i]] += sqDist(X[i], C[labels[i]]);
+  return out;
+}
+
 export function boundingBox(X: Vec2[]): { lo: Vec2; hi: Vec2 } {
   const lo: Vec2 = [Infinity, Infinity];
   const hi: Vec2 = [-Infinity, -Infinity];

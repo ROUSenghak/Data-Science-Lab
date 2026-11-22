@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Tex, TexBlock } from "@/components/math/Tex";
-import { fmt, texNum } from "@/lib/format";
+import { fmt, texNum, texSq } from "@/lib/format";
 import { gradient, leastSquares, mean } from "@/lib/ml/linreg";
 import type { Frame } from "./fold";
 import type { ExperimentMeta } from "./types";
@@ -137,7 +137,7 @@ export function Inspector({ frame, framework, point }: Props) {
         <>
           <TexBlock>{`L = \\frac{1}{n}\\sum_{i=1}^{n} (\\hat y_i - y_i)^2`}</TexBlock>
           {r.length >= 2 && (
-            <TexBlock>{`L = \\tfrac{1}{${n}}\\big(${texNum(r[0], 3, true)}^2 + ${texNum(r[1], 3, true)}^2 + \\cdots\\big) = ${texNum(s.loss, 5)}`}</TexBlock>
+            <TexBlock>{`L = \\tfrac{1}{${n}}\\big(${texSq(r[0], 3)} + ${texSq(r[1], 3)} + \\cdots\\big) = ${texNum(s.loss, 5)}`}</TexBlock>
           )}
           <Explain>
             {torch ? (

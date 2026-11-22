@@ -61,7 +61,7 @@ export function ReplayToolbar({
         <Button onClick={() => lab.goTo(i - 1)} disabled={!run || i === 0} ariaLabel="Previous snapshot" title="Previous snapshot (←)">
           {Icon.back}
         </Button>
-        <Button onClick={() => (i >= last ? (lab.setIdx(0), lab.setPlaying(true)) : lab.setPlaying((p) => !p))} disabled={!run} ariaLabel={playing ? "Pause replay" : "Play replay"}>
+        <Button onClick={lab.togglePlay} disabled={!run} ariaLabel={playing ? "Pause replay" : "Play replay"}>
           {playing ? Icon.pause : Icon.play} {playing ? "Pause" : "Play"}
         </Button>
         <Button onClick={() => lab.goTo(i + 1)} disabled={!run || i >= last} ariaLabel="Next snapshot" title="Next snapshot (→)">

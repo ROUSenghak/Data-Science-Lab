@@ -11,5 +11,5 @@ export function LessonFit() {
 }
 
 export function LessonGD() {
-  return <GradientDescentExplorer data={useLessonData()} />;
+  return <GradientDescentExplorer data={useLessonData()} defaultDetailed />;
 }

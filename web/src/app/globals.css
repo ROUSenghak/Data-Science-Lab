@@ -199,6 +199,47 @@ body {
   border-radius: 4px;
 }
 
+/* Equation terms linked to plots (components/anim/Focus.tsx). Colour follows the object's role. */
+/* KaTeX stacks absolutely positioned boxes (vlist) that can overlap neighbouring terms in aligned
+   environments; let the pointer pass through them to the linked term underneath. */
+.linked-math .katex-html .vlist,
+.linked-math .katex-html .vlist-r,
+.linked-math .katex-html .vlist-t {
+  pointer-events: none;
+}
+.linked-math [data-hl] {
+  pointer-events: auto;
+  --hl: var(--viz-model);
+  border-radius: 3px;
+  cursor: help;
+  box-shadow: 0 1.5px 0 0 color-mix(in srgb, var(--hl) 55%, transparent);
+  transition: background-color 120ms ease-out;
+}
+.linked-math [data-hl^="residual"],
+.linked-math [data-hl="loss"] {
+  --hl: var(--viz-residual);
+}
+.linked-math [data-hl^="step"] {
+  --hl: var(--fg-2);
+}
+.linked-math [data-hl="cluster.0"] { --hl: var(--viz-cluster-1); }
+.linked-math [data-hl="cluster.1"] { --hl: var(--viz-cluster-2); }
+.linked-math [data-hl="cluster.2"] { --hl: var(--viz-cluster-3); }
+.linked-math [data-hl="cluster.3"] { --hl: var(--viz-cluster-4); }
+.linked-math [data-hl="cluster.4"] { --hl: var(--viz-cluster-5); }
+.linked-math [data-hl="cluster.5"] { --hl: var(--viz-cluster-6); }
+.linked-math [data-hl="cluster.6"] { --hl: var(--viz-cluster-7); }
+.linked-math [data-hl="cluster.7"] { --hl: var(--viz-cluster-8); }
+.linked-math [data-hl]:hover,
+.linked-math [data-hl][data-active] {
+  background-color: color-mix(in srgb, var(--hl) 20%, transparent);
+}
+
+/* Scatter markers recolour smoothly when a point changes cluster (disabled under reduced motion below). */
+.viz-recolor {
+  transition: fill 260ms ease-out;
+}
+
 /* Range inputs */
 input[type="range"] {
   accent-color: var(--viz-model);

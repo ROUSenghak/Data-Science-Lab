@@ -2,7 +2,9 @@
 
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePlayback } from "@/components/anim/hooks";
 import { isParamValid } from "@/components/code/CodeView";
+import type { SpeedDef } from "@/lib/anim/playback";
 import { BackendUnavailable, getExperiment, runExperiment } from "./api";
 import type { TraceFrame } from "./fold";
 import type { ExperimentMeta, RunResponse, Snapshot } from "./types";
@@ -13,7 +15,12 @@ import type { ExperimentMeta, RunResponse, Snapshot } from "./types";
  * a fold function (snapshots → frames) and renders its own inspector and plots.
  */
 
-export const SPEEDS = { slow: 600, normal: 160, fast: 30 } as const;
+/** Replay speeds (ms per snapshot). Playback itself is the shared usePlayback hook. */
+export const SPEEDS: Record<"slow" | "normal" | "fast", SpeedDef> = {
+  slow: { label: "slow", interval: 600, stride: 1 },
+  normal: { label: "normal", interval: 160, stride: 1 },
+  fast: { label: "fast", interval: 30, stride: 1 },
+};
 export type Speed = keyof typeof SPEEDS;
 
 export interface FrameworkDef<K extends string = string> {
@@ -40,9 +47,6 @@ export function useCodeLab<K extends string, S, F extends TraceFrame<S>>(opts: {
   const [loadError, setLoadError] = useState<{ offline: boolean; message: string } | null>(null);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
-  const [idx, setIdx] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState<Speed>("normal");
   const [attempt, setAttempt] = useState(0);
   const onResult = useRef(opts.onResult);
   useEffect(() => {
@@ -53,14 +57,21 @@ export function useCodeLab<K extends string, S, F extends TraceFrame<S>>(opts: {
   const run = runs[exp.id];
   const vals = values[exp.id];
 
+  // A new run (or another framework's run) restarts the replay at the first snapshot (resetKey below).
+  const frames = useMemo(() => (run ? fold(run.snapshots) : []), [run, fold]);
+  const pb = usePlayback(frames.length, { speeds: SPEEDS, initialSpeed: "normal", resetKey: run, keyboard: true });
+  const pause = useRef(pb.pause);
+  useEffect(() => {
+    pause.current = pb.pause;
+  });
+
   const execute = useCallback(async (id: string, params: Record<string, number>) => {
     setRunning(true);
     setRunError(null);
-    setPlaying(false);
+    pause.current();
     try {
       const res = await runExperiment<S>(id, params);
       setRuns((r) => ({ ...r, [id]: res }));
-      setIdx(0);
       onResult.current?.(id, res);
     } catch (e) {
       if (e instanceof BackendUnavailable) setLoadError({ offline: true, message: e.message });
@@ -89,44 +100,12 @@ export function useCodeLab<K extends string, S, F extends TraceFrame<S>>(opts: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exp.id, attempt]);
 
-  const frames = useMemo(() => (run ? fold(run.snapshots) : []), [run, fold]);
-  const last = Math.max(0, frames.length - 1);
-  const i = Math.min(idx, last);
+  const last = pb.last;
+  const i = pb.index;
   const frame: F | undefined = frames[i];
-
-  useEffect(() => {
-    if (!playing) return;
-    const id = window.setInterval(() => {
-      setIdx((v) => {
-        if (v >= last) {
-          setPlaying(false);
-          return v;
-        }
-        return v + 1;
-      });
-    }, SPEEDS[speed]);
-    return () => window.clearInterval(id);
-  }, [playing, speed, last]);
-
-  // keyboard: ← / → step through snapshots
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target;
-      if (t instanceof Element && t.closest("input, textarea, select, [role=dialog]")) return;
-      if (e.key === "ArrowRight") setIdx((v) => Math.min(last, v + 1));
-      else if (e.key === "ArrowLeft") setIdx((v) => Math.max(0, v - 1));
-      else return;
-      setPlaying(false);
-      e.preventDefault();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [last]);
 
   const switchFramework = (key: K) => {
     setFw(key);
-    setIdx(0);
-    setPlaying(false);
     setRunError(null);
     setLoadError(null);
     const url = new URL(window.location.href);
@@ -141,10 +120,7 @@ export function useCodeLab<K extends string, S, F extends TraceFrame<S>>(opts: {
   }, [frames]);
 
   /** Go to snapshot k and stop playback. */
-  const goTo = (k: number) => {
-    setPlaying(false);
-    setIdx(Math.max(0, Math.min(last, k)));
-  };
+  const goTo = (k: number) => pb.seek(k);
 
   const setParam = (name: string, v: number) => setValues((all) => ({ ...all, [exp.id]: { ...all[exp.id], [name]: v } }));
   /** Set several parameters and execute immediately. */
@@ -169,12 +145,14 @@ export function useCodeLab<K extends string, S, F extends TraceFrame<S>>(opts: {
     frame,
     i,
     last,
-    playing,
-    setPlaying,
-    setIdx,
+    playing: pb.playing,
+    setPlaying: pb.setPlaying,
+    /** Play/pause; playing from the last snapshot replays from the first. */
+    togglePlay: pb.toggle,
+    setIdx: (k: number) => pb.seek(k),
     goTo,
-    speed,
-    setSpeed,
+    speed: pb.speed,
+    setSpeed: pb.setSpeed,
     running,
     runError,
     loadError,

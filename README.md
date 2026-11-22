@@ -46,8 +46,11 @@ api/                         Python execution service (FastAPI)
 web/src/
   content/curriculum.ts      modules, topics, labs, projects, search index (single source of truth)
   lib/ml/                    pure TypeScript math (linreg, kmeans, seeded RNG) and its tests
+  lib/ml/gdTimeline.ts       gradient descent as displayable frames, convergence regime, eigen-direction errors, run summaries
+  lib/anim/                  pure animation logic: playback reducer, tween rules, focus keys (equation ↔ plot)
+  components/anim/           usePlayback, useTween, useReducedMotion, PlaybackBar, FocusProvider/LinkedMath, PredictPrompt
   components/                layout (header, search, theme), math (KaTeX), plot (SVG Chart), code (CodeView), ui
-  labs/linear-regression/    plots, browser explorers, playground, lesson widgets
+  labs/linear-regression/    plots, gradient-descent explorer, two-run comparison, playground, lesson widgets
   labs/k-means/              cluster plot (Voronoi cells), objective plot, Lloyd stepper, init comparison, elbow, lesson widgets
   codelab/                   API client, wire types, snapshot folding, linear-regression Inspector and CodeLab
   codelab/useCodeLab.ts      lab-independent state: load, run, replay, keyboard (shared by every Code Lab page)
@@ -85,6 +88,27 @@ Loss-surface contours are exact. The MSE is quadratic, so its level sets are ell
 - Nearest-centroid regions are exact Voronoi cells (half-plane clipping), not a sampled raster.
 - `MAX_ARRAY_LEN` is 2000 so that the n × K distance matrix (n ≤ 200, K ≤ 8) can be traced.
 
+## Animations
+
+Every animated view follows the same rules, enforced in `lib/anim/` and tested in `lib/anim/anim.test.ts`:
+
+1. **Playback steps through computed states.** `usePlayback` (Code Lab replays, the gradient-descent explorer, the comparison, Lloyd's algorithm) only ever points at a state that the math produced: an epoch, one of the four computations inside an epoch, a K-Means half-step, a traced Python snapshot.
+2. **Tweens are labelled visuals, not iterations.** `useTween` only animates a *single* step between finite states, and always starts from the previous computed state. A gradient-descent glide follows the exact segment θₜ → θₜ − η∇L. A centroid glide shows where μⱼ jumps, and the Voronoi cells are recomputed exactly for the centroids as drawn. Jumps over several states snap. Equations and tables always show the computed state.
+3. **Equations and plots share a focus.** Equation terms are marked with `hl(focus, tex)`, which KaTeX renders as `\htmlData` (the only trusted command). Hovering a term emphasises the matching residual, squared error, gradient component or cluster, and hovering the plot highlights the term.
+4. **Reduced motion is respected.** With `prefers-reduced-motion`, tweens snap and CSS transitions are off.
+5. **No dependency was added**: transitions are a small requestAnimationFrame hook.
+
+What the gradient-descent explorer shows (`labs/linear-regression/GradientDescentExplorer.tsx`):
+- per epoch, or "inside an epoch" (predict → loss → gradient → update);
+- squared residuals as squares whose area ∝ rᵢ²;
+- the update split into −η∂L/∂w and −η∂L/∂b on equal-scale axes, with the level set through θₜ, so −∇L is visibly perpendicular to it;
+- H's steep/flat eigen-directions, and the error along each with its exact factor 1 − ηλ;
+- a stability gauge (no overshoot / zigzag / diverges at 1/λmax and 2/λmax) that you can click;
+- draggable θ₀;
+- a prediction to make before playing.
+
+`GDComparison` replays two learning rates in sync and plots the excess loss on a log axis.
+
 ## Tests
 
 - `api/tests/test_linear_regression.py` (24 tests):
@@ -100,8 +124,20 @@ Loss-surface contours are exact. The MSE is quadratic, so its level sets are ell
   - manifest steps match the template's `@step` markers;
   - run limits stop execution with an error instead of crashing.
 - `api/tests/test_kmeans.py` (61 tests). Guarantees: every traced distance, assignment (including the tie rule), centroid mean, cluster sum and objective equals an independent recomputation; J never increases across half-steps; the stopping rule and final evaluation; the empty-cluster policy; duplicate points with coincident centroids; reproducible seeds; identical labels, centroids, inertia and `n_iter_` as `sklearn.cluster.KMeans` given the same initial centroids, `tol=0` and `max_iter`; consistency of the scikit-learn template's attributes; invalid parameters (422). One empirical, seed-specific test is labelled as such (restarts escaping a local minimum).
-- `web/src/lib/ml/kmeans.test.ts`, `web/src/codelab/kmeans/trace.test.ts` (23 tests): the TypeScript Lloyd iteration reproduces three NumPy runs exactly (including empty clusters and a local minimum), silhouette equals scikit-learn's, J is non-increasing on 147 random cases, Voronoi cells tile the plane and contain exactly their nearest points, duplicates, invalid input, seeds.
+- `web/src/lib/ml/kmeans.test.ts`, `web/src/codelab/kmeans/trace.test.ts` (25 tests): the TypeScript Lloyd iteration reproduces three NumPy runs exactly (including empty clusters and a local minimum), silhouette equals scikit-learn's, J is non-increasing on 147 random cases, Voronoi cells tile the plane and contain exactly their nearest points, duplicates, invalid input, seeds.
 - `web/src/lib/ml/linreg.test.ts`, `web/src/codelab/fold.test.ts` (16 tests): TypeScript math against NumPy and scikit-learn fixtures, the stability bound, ellipse level sets, PRNG determinism, snapshot folding, per-epoch history alignment and step lookup.
+- `web/src/lib/ml/gdTimeline.test.ts` (13 tests). Guarantees:
+  - every animation frame shows computed values, and an update frame's θₜ₊₁ is what the next forward pass uses;
+  - each eigen-component of the error is multiplied by exactly 1 − ηλ per step;
+  - monotone runs never flip the steep component; zigzag runs flip it every step while the loss never rises; diverging runs grow;
+  - overflow is reported, not crashed;
+  - the final loss belongs to the final parameters.
+- `web/src/lib/anim/anim.test.ts`, `web/src/lib/format.test.ts` (13 tests):
+  - the playback index always points at an existing state, and stride and replay work;
+  - tweens end exactly on the computed state and never animate jumps, non-finite values or reduced motion;
+  - focus keys round-trip through KaTeX's rendered `data-hl`;
+  - squared numbers typeset at every magnitude (a diverging run reaches 1e26).
+- `kmeans.test.ts` also checks what the K-Means animation claims: per-cluster Jⱼ sum to J, and the points ringed "will switch" after an update are exactly those the next assignment changes.
 
 ## Adding a lab
 

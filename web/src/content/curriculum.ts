@@ -226,6 +226,7 @@ export function searchIndex(): SearchEntry[] {
     if (l.status === "available" && l.href) out.push({ title: l.title, href: l.href, kind: "Lab", context: l.topic, keywords: l.summary });
   out.push(
     { title: "Learning rate and divergence", href: "/labs/linear-regression#gradient-descent", kind: "Lab", context: "Linear regression playground", keywords: "learning rate eta diverge stability hessian eigenvalue" },
+    { title: "Compare two learning rates", href: "/labs/linear-regression#compare", kind: "Lab", context: "Linear regression playground", keywords: "learning rate comparison convergence speed zigzag oscillation condition number" },
     { title: "Outliers and nonlinear data", href: "/labs/linear-regression#failure-cases", kind: "Lab", context: "Linear regression playground", keywords: "failure outlier misspecification residuals" },
     { title: "PyTorch autograd: backward()", href: "/code-lab?framework=pytorch", kind: "Lab", context: "Code Lab", keywords: "backward gradient optimizer sgd zero_grad tensor" },
     { title: "scikit-learn LinearRegression", href: "/code-lab?framework=sklearn", kind: "Lab", context: "Code Lab", keywords: "fit closed form normal equations lstsq" },

@@ -22,4 +22,10 @@ export function texNum(v: number | null | undefined, digits = 4, paren = false):
   return paren && v < 0 ? `(${s})` : s;
 }
 
+/** v² for LaTeX. Parenthesizes negatives and scientific notation (a bare "1.2\\times10^{5}^2" is a double superscript). */
+export function texSq(v: number | null | undefined, digits = 4): string {
+  const s = texNum(v, digits);
+  return v != null && (v < 0 || s.includes("\\times")) ? `(${s})^2` : `${s}^2`;
+}
+
 export const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));

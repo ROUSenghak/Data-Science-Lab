@@ -3,6 +3,7 @@ import fixtures from "./__fixtures__/kmeans-numpy.json";
 import {
   argmin,
   assign,
+  clusterObjectives,
   DATASETS,
   distanceMatrix,
   elbow,
@@ -224,5 +225,33 @@ describe("Voronoi cells and datasets", () => {
     expect(silhouette(X, X.map(() => 0))).toBeNaN();
     const run = runKMeans(X, 3, { method: "kmeans++", seed: 0 });
     expect(silhouette(X, run.labels)).toBeGreaterThan(0.6);
+  });
+});
+
+describe("what the animation claims", () => {
+  it("per-cluster objectives Jⱼ add up to J at every half-step", () => {
+    const { X } = generateClusters("overlapping", 120, 4);
+    const run = runKMeans(X, 4, { method: "random", seed: 2 });
+    for (const p of run.phases) {
+      if (!p.labels) continue;
+      const parts = clusterObjectives(X, p.centroids, p.labels);
+      close(parts.reduce((a, v) => a + v, 0), p.J!);
+      expect(parts.every((v) => v >= 0)).toBe(true);
+    }
+  });
+
+  it("points ringed after an update ('will switch') are exactly those the next assignment changes", () => {
+    for (const kind of ["blobs", "elongated", "unequal"] as const) {
+      const { X } = generateClusters(kind, 120, 1);
+      for (const seed of [0, 1, 2]) {
+        const { phases } = runKMeans(X, 3, { method: "uniform", seed });
+        phases.forEach((p, k) => {
+          const next = phases[k + 1];
+          if (p.kind !== "update" || !next) return;
+          const willMove = assign(X, p.centroids).flatMap((l, i) => (l !== p.labels![i] ? [i] : []));
+          expect(willMove).toEqual(next.changed);
+        });
+      }
+    }
   });
 });

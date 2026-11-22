@@ -35,6 +35,7 @@ export function SeriesPlot({
   ariaLabel,
   digits = 5,
   xDomain,
+  yDomain: yFixed,
   yFormat,
 }: {
   series: Series[];
@@ -50,6 +51,8 @@ export function SeriesPlot({
   digits?: number;
   /** Fixed x range, so the axis does not rescale while a series is revealed step by step. */
   xDomain?: [number, number];
+  /** Fixed y range (e.g. from the complete run, so revealing it step by step does not rescale the axis). */
+  yDomain?: [number, number];
   /** Tick format for the y axis (e.g. compact thousands). */
   yFormat?: (v: number) => string;
 }) {
@@ -73,6 +76,7 @@ export function SeriesPlot({
     const pad = (hi - lo || Math.abs(hi) || 1) * 0.08;
     yDom = [lo === 0 ? 0 : lo - pad, hi + pad];
   }
+  if (yFixed && yFixed.every(Number.isFinite) && yFixed[1] > yFixed[0] && (!log || yFixed[0] > 0)) yDom = yFixed;
   const xDom: [number, number] = xDomain ?? [xs[0] ?? 0, Math.max((xs[0] ?? 0) + 1, xs[xs.length - 1] ?? 1)];
 
   const legend: LegendItem[] = [

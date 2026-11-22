@@ -7,6 +7,7 @@ import { Callout, ExecutionBadge, SectionHeading } from "@/components/ui/primiti
 import { fmt } from "@/lib/format";
 import { centerX, generateDataset, leastSquares, stability, type DataConfig } from "@/lib/ml/linreg";
 import { FitExplorer, GradientDescentExplorer, ResidualPlot } from "./explorers";
+import { GDComparison } from "./GDComparison";
 import { DataFitPlot } from "./plots";
 
 export function LinearRegressionLab() {
@@ -71,11 +72,19 @@ export function LinearRegressionLab() {
           Gradient descent
         </SectionHeading>
         <p className="mb-4 max-w-2xl text-[15px] text-fg-2">
-          Each epoch computes the exact full-batch gradient and moves against it. Try η just below and just above <span className="font-mono">{fmt(stab.criticalLR, 3)}</span>, then center the feature and compare the path.
+          Each epoch computes the exact full-batch gradient and moves against it. Switch to <i>inside an epoch</i> to see the four computations one at a time. Try η just below and just above <span className="font-mono">{fmt(stab.criticalLR, 3)}</span>, drag θ₀ on the loss surface, then center the feature and compare the path.
         </p>
         <GradientDescentExplorer data={data} />
 
-        <SectionHeading id="failure-cases" kicker="3">
+        <SectionHeading id="compare" kicker="3">
+          Compare two learning rates
+        </SectionHeading>
+        <p className="mb-4 max-w-2xl text-[15px] text-fg-2">
+          Same data, same starting point, two values of η, replayed in sync. Predict which one arrives first, then watch the paths and the excess loss.
+        </p>
+        <GDComparison data={data} />
+
+        <SectionHeading id="failure-cases" kicker="4">
           Failure cases
         </SectionHeading>
         <div className="grid gap-4 lg:grid-cols-2">

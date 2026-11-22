@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Tex, TexBlock } from "@/components/math/Tex";
-import { fmt, texNum } from "@/lib/format";
+import { fmt, texNum, texSq } from "@/lib/format";
 import { argmin, distanceMatrix, objective, updateCentroids, type Vec2 } from "@/lib/ml/kmeans";
 import { distanceTex } from "@/labs/k-means/explorers";
 import { ClusterTag } from "@/labs/k-means/plots";
@@ -155,7 +155,7 @@ export function KMeansInspector({ frame, framework, point, params }: { frame: KF
     case "data":
       body = (
         <>
-          <TexBlock>{`x_i = m_{g_i} + \\varepsilon_i,\\qquad g_i \\sim \\mathcal U\\{1,\\dots,${params.n_blobs}\\},\\quad \\varepsilon_i \\sim \\mathcal N(0, ${texNum(params.cluster_std, 1)}^2 I)`}</TexBlock>
+          <TexBlock>{`x_i = m_{g_i} + \\varepsilon_i,\\qquad g_i \\sim \\mathcal U\\{1,\\dots,${params.n_blobs}\\},\\quad \\varepsilon_i \\sim \\mathcal N(0, ${texSq(params.cluster_std, 1)} I)`}</TexBlock>
           {n > 0 && <TexBlock>{`X \\in \\mathbb R^{${n}\\times 2},\\qquad x_{${i + 1}} = (${texNum(X[i][0], 3)},\\ ${texNum(X[i][1], 3)})`}</TexBlock>}
           <Explain>
             Blob centres <Tex>{"m_b"}</Tex> are drawn uniformly in <Tex>{"[-5,5]^2"}</Tex>. K-Means never sees <Tex>g_i</Tex>: clustering is unsupervised. The same seed gives the same points in the NumPy and scikit-learn versions.

@@ -1,13 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { FocusProvider, LinkedMath, LTexBlock, useFocus } from "@/components/anim/Focus";
+import { usePlayback, useTween } from "@/components/anim/hooks";
+import { PlaybackBar } from "@/components/anim/PlaybackBar";
+import { PredictPrompt } from "@/components/anim/PredictPrompt";
 import { TexBlock } from "@/components/math/Tex";
 import { SeriesPlot } from "@/components/plot/SeriesPlot";
-import { Button, Icon, Segmented } from "@/components/ui/controls";
+import { Button, Segmented } from "@/components/ui/controls";
 import { Callout } from "@/components/ui/primitives";
-import { fmt, texNum } from "@/lib/format";
-import { assign, elbow, runKMeans, sqDist, type InitMethod, type KMeansRun, type Phase, type Vec2 } from "@/lib/ml/kmeans";
-import { ClusterPlot, ClusterTag, InitComparisonPlot, ObjectivePlot, plotDomain, type InitTrial, type ObjectivePoint } from "./plots";
+import { encodeFocus, hl } from "@/lib/anim/focus";
+import type { SpeedDef } from "@/lib/anim/playback";
+import { tweenDuration } from "@/lib/anim/tween";
+import { fmt, texNum, texSq } from "@/lib/format";
+import { assign, clusterObjectives, elbow, lloyd, runKMeans, sqDist, type InitMethod, type KMeansRun, type Phase, type Vec2 } from "@/lib/ml/kmeans";
+import { ClusterPlot, clusterColor, ClusterTag, InitComparisonPlot, ObjectivePlot, plotDomain, type InitTrial, type ObjectivePoint } from "./plots";
 
 export const INIT_METHODS: { id: InitMethod; label: string; hint: string }[] = [
   { id: "random", label: "random points", hint: "K distinct data points, uniformly at random" },
@@ -19,20 +26,18 @@ export function objectivePoints(phases: Phase[], upTo = phases.length - 1): Obje
   return phases.slice(0, upTo + 1).flatMap((p) => (p.kind === "init" || p.J == null ? [] : [{ iteration: p.iteration, phase: p.kind, J: p.J }]));
 }
 
-const PHASE_SPEED = { slow: 1100, normal: 550, fast: 180 } as const;
+const PHASE_SPEEDS: Record<"slow" | "normal" | "fast", SpeedDef> = {
+  slow: { label: "slow", interval: 1400, stride: 1 },
+  normal: { label: "normal", interval: 750, stride: 1 },
+  fast: { label: "fast", interval: 240, stride: 1 },
+};
+const SPEED_OPTIONS = (["slow", "normal", "fast"] as const).map((v) => ({ value: v, label: v }));
+
+const pairs = (v: number[]): Vec2[] => Array.from({ length: v.length / 2 }, (_, j) => [v[2 * j], v[2 * j + 1]]);
 
 /* ------------------------------------------------------------------ step through Lloyd's algorithm */
 
-export function LloydExplorer({
-  X,
-  truth,
-  k,
-  method,
-  seed,
-  onAddPoint,
-  compact = false,
-  maxIter = 100,
-}: {
+type LloydProps = {
   X: Vec2[];
   /** Generating group of each point, for comparison (optional). */
   truth?: number[] | null;
@@ -42,43 +47,51 @@ export function LloydExplorer({
   onAddPoint?: (p: Vec2) => void;
   compact?: boolean;
   maxIter?: number;
-}) {
-  const run = useMemo<KMeansRun | null>(() => (X.length >= k ? runKMeans(X, k, { method, seed, maxIter }) : null), [X, k, method, seed, maxIter]);
+  /** Ask the learner to predict the outcome of each start. */
+  predictions?: boolean;
+};
+
+export function LloydExplorer(props: LloydProps) {
+  return (
+    <FocusProvider>
+      <LloydInner {...props} />
+    </FocusProvider>
+  );
+}
+
+function LloydInner({ X, truth, k, method, seed, onAddPoint, compact = false, maxIter = 100, predictions = true }: LloydProps) {
+  // Centroids dragged by the learner at the initialization step; forgotten when the experiment changes.
+  const [custom, setCustom] = useState<Vec2[] | null>(null);
+  const [prevExp, setPrevExp] = useState({ X, k, method, seed });
+  if (prevExp.X !== X || prevExp.k !== k || prevExp.method !== method || prevExp.seed !== seed) {
+    setPrevExp({ X, k, method, seed });
+    setCustom(null);
+  }
+  const run = useMemo<KMeansRun | null>(() => {
+    if (X.length < k) return null;
+    if (custom && custom.length === k) return lloyd(X, custom, maxIter);
+    return runKMeans(X, k, { method, seed, maxIter });
+  }, [X, k, method, seed, maxIter, custom]);
+  // Lowest J over many restarts, for the prediction. Empirical, like the comparison below.
+  const bestKnown = useMemo(() => {
+    if (!run) return null;
+    let best = run.inertia;
+    for (const m of ["kmeans++", "random"] as const) for (let s = 0; s < 20; s++) best = Math.min(best, runKMeans(X, k, { method: m, seed: s, maxIter }).inertia);
+    return best;
+  }, [run, X, k, maxIter]);
+
   const phases = run?.phases ?? [];
-  const last = Math.max(0, phases.length - 1);
-  const [p, setP] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState<keyof typeof PHASE_SPEED>("normal");
+  const pb = usePlayback(phases.length, { speeds: PHASE_SPEEDS, initialSpeed: "normal", resetKey: run });
+  const phase = phases[pb.index];
+  const tween = useTween(phase ? phase.centroids.flat() : [], { singleStep: pb.singleStep, duration: tweenDuration(pb.speedDef.interval) });
   const [selected, setSelected] = useState<number | null>(null);
   const [colorBy, setColorBy] = useState<"kmeans" | "truth">("kmeans");
   const [showCells, setShowCells] = useState(true);
-
-  // Restart the replay when the experiment changes (state adjustment during render).
-  const [prevRun, setPrevRun] = useState(run);
-  if (prevRun !== run) {
-    setPrevRun(run);
-    setP(0);
-    setPlaying(false);
-    if (selected != null && selected >= X.length) setSelected(null);
-  }
-
-  useEffect(() => {
-    if (!playing) return;
-    const id = window.setInterval(() => {
-      setP((v) => {
-        if (v >= last) {
-          setPlaying(false);
-          return v;
-        }
-        return v + 1;
-      });
-    }, PHASE_SPEED[speed]);
-    return () => window.clearInterval(id);
-  }, [playing, speed, last]);
+  const [spokes, setSpokes] = useState(true);
+  const [ask, setAsk] = useState(predictions);
+  if (selected != null && selected >= X.length) setSelected(null);
 
   const domain = useMemo(() => plotDomain(X), [X]);
-  const pi = Math.min(p, last);
-  const phase = phases[pi];
 
   if (!run || !phase) {
     return (
@@ -92,35 +105,70 @@ export function LloydExplorer({
   }
 
   const C = phase.centroids;
+  /** Centroids as drawn: equal to C except while gliding from μ⁽ᵗ⁻¹⁾ to μ⁽ᵗ⁾ during an update. */
+  const shownC = tween.moving ? pairs(tween.value) : C;
   // Points that lie in another centroid's region after an update: they switch at the next assignment.
   const willMove = phase.kind === "update" && !phase.converged ? assign(X, C).flatMap((l, i) => (l !== phase.labels![i] ? [i] : [])) : [];
   const shownLabels = colorBy === "truth" && truth ? truth : phase.labels;
-  const nextAssign = phases[pi + 1]?.kind === "assign" ? phases[pi + 1] : null;
-  const stepLabel =
-    phase.kind === "init" ? "Initialization" : `Iteration ${phase.iteration} · ${phase.kind === "assign" ? "assignment step" : "update step"}`;
+  const nextAssign = phases[pb.index + 1]?.kind === "assign" ? phases[pb.index + 1] : null;
+  const stepLabel = phase.kind === "init" ? "Initialization" : `Iteration ${phase.iteration} · ${phase.kind === "assign" ? "assignment" : "update"}`;
+  const atInit = pb.index === 0;
+  const reachedBest = bestKnown != null && run.inertia <= bestKnown * (1 + 1e-9);
+
+  const dragCentroid = (j: number, p: Vec2) =>
+    setCustom((cur) => {
+      const base = cur ?? phases[0].centroids;
+      return base.map((c, m): Vec2 => (m === j ? p : [c[0], c[1]]));
+    });
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant="primary" onClick={() => (pi >= last ? (setP(0), setPlaying(true)) : setPlaying((v) => !v))} ariaLabel={playing ? "Pause" : "Play"}>
-          {playing ? Icon.pause : Icon.play} {playing ? "Pause" : pi >= last ? "Replay" : "Play"}
-        </Button>
-        <Button onClick={() => (setPlaying(false), setP((v) => Math.max(0, v - 1)))} disabled={pi === 0} ariaLabel="Previous half-step">
-          {Icon.back}
-        </Button>
-        <Button onClick={() => (setPlaying(false), setP((v) => Math.min(last, v + 1)))} disabled={pi >= last} ariaLabel="Next half-step">
-          {Icon.step} Step
-        </Button>
-        <Button variant="ghost" onClick={() => (setPlaying(false), setP(0))} ariaLabel="Reset to initialization">
-          {Icon.reset} Reset
-        </Button>
-        <Segmented ariaLabel="Playback speed" value={speed} onChange={setSpeed} options={[{ value: "slow", label: "slow" }, { value: "normal", label: "normal" }, { value: "fast", label: "fast" }]} />
-        <input type="range" aria-label="Half-step" className="min-w-32 flex-1" min={0} max={last} value={pi} onChange={(e) => (setPlaying(false), setP(Number(e.target.value)))} />
-        <span className="whitespace-nowrap font-mono text-[12px] tabular-nums text-fg-2">
-          {stepLabel}
-          <span className="text-fg-3"> / {run.iterations}</span>
-        </span>
-      </div>
+      <PlaybackBar
+        pb={pb}
+        speeds={SPEED_OPTIONS}
+        scrubLabel="Half-step"
+        status={
+          <>
+            {stepLabel}
+            <span className="text-fg-3"> / {run.iterations}</span>
+          </>
+        }
+      />
+      {(custom || ask) && (
+        <div className="space-y-2">
+          {custom && (
+            <div className="flex flex-wrap items-center gap-2 text-[12.5px] text-fg-2">
+              <span className="rounded border border-line-strong px-1.5 py-0.5 text-[11px] font-medium">custom start</span>
+              You placed the initial centroids by hand.
+              <Button variant="ghost" onClick={() => setCustom(null)}>
+                Back to {INIT_METHODS.find((m) => m.id === method)?.label}
+              </Button>
+            </div>
+          )}
+          {ask && bestKnown != null && (
+            <PredictPrompt
+              question={<>From this start, will Lloyd&apos;s algorithm reach the lowest J found over 40 restarts ({fmt(bestKnown, 2)})?</>}
+              options={[
+                { value: "best", label: "yes, the best" },
+                { value: "local", label: "no, a worse local minimum" },
+              ]}
+              answer={reachedBest ? "best" : "local"}
+              revealed={pb.index >= pb.last}
+              resetKey={run}
+              onDismiss={() => setAsk(false)}
+              explanation={
+                reachedBest ? (
+                  <>It converged to J = {fmt(run.inertia, 3)}, the lowest value found. That is still only the best of the runs tried, not a proof of the global minimum.</>
+                ) : (
+                  <>
+                    It stopped at J = {fmt(run.inertia, 3)}, {fmt((run.inertia / bestKnown! - 1) * 100, 1)}% higher than the best found. Each half-step can only lower J, so once two clusters share a centroid (or one centroid covers two blobs) no single step can undo it.
+                  </>
+                )
+              }
+            />
+          )}
+        </div>
+      )}
 
       <div className={`grid gap-4 ${compact ? "" : "lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]"}`}>
         <div className="min-w-0">
@@ -128,15 +176,17 @@ export function LloydExplorer({
             X={X}
             labels={shownLabels}
             k={colorBy === "truth" && truth ? Math.max(...truth) + 1 : k}
-            centroids={C}
+            centroids={shownC}
             prevCentroids={phase.kind === "update" ? phase.prevCentroids : null}
-            cells={showCells ? C : null}
-            changed={colorBy === "kmeans" ? (phase.kind === "assign" && phase.iteration > 1 ? phase.changed : willMove) : []}
+            cells={showCells ? shownC : null}
+            changed={colorBy === "kmeans" && !tween.moving ? (phase.kind === "assign" && phase.iteration > 1 ? phase.changed : willMove) : []}
             changedLabel={phase.kind === "update" ? "will switch at the next assignment" : "changed cluster"}
+            spokes={spokes && colorBy === "kmeans" && phase.kind !== "init"}
             selected={selected}
             onSelect={setSelected}
             onAddPoint={onAddPoint}
-            distancesFrom={selected}
+            onCentroidDrag={atInit ? dragCentroid : undefined}
+            distancesFrom={tween.moving ? null : selected}
             domain={domain}
             height={compact ? 320 : 400}
             ariaLabel={`K-Means with K = ${k}: ${stepLabel}`}
@@ -144,6 +194,9 @@ export function LloydExplorer({
           <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[12px] text-fg-2">
             <label className="inline-flex items-center gap-1.5">
               <input type="checkbox" className="accent-[var(--viz-model)]" checked={showCells} onChange={(e) => setShowCells(e.target.checked)} /> nearest-centroid regions
+            </label>
+            <label className="inline-flex items-center gap-1.5">
+              <input type="checkbox" className="accent-[var(--viz-model)]" checked={spokes} onChange={(e) => setSpokes(e.target.checked)} /> assignment lines
             </label>
             {truth && (
               <Segmented
@@ -156,11 +209,20 @@ export function LloydExplorer({
                 ]}
               />
             )}
-            <span className="text-fg-3">{onAddPoint ? "Click empty space to add a point." : "Click a point to inspect its distances."}</span>
+            <span className="text-fg-3">
+              {atInit ? "Drag a centroid to choose the start. " : ""}
+              {onAddPoint ? "Click empty space to add a point." : "Click a point to inspect its distances."}
+            </span>
           </div>
+          {phase.kind === "update" && (
+            <p className="mt-1 text-[11.5px] text-fg-3">
+              The update is one jump from μ⁽ᵗ⁻¹⁾ to μ⁽ᵗ⁾; the glide only shows where each centroid goes. The regions are recomputed exactly for the centroids as drawn, so you can watch boundaries sweep across points, which keep their labels until the next assignment.
+            </p>
+          )}
         </div>
         <div className="min-w-0 space-y-3">
           <PhaseExplanation phase={phase} X={X} willMove={willMove.length} nextAssign={nextAssign} />
+          {phase.labels && <ObjectiveBreakdown X={X} phase={phase} scale={Math.max(...objectivePoints(phases).map((q) => q.J))} />}
           {selected != null && X[selected] && <PointInspector X={X} i={selected} phase={phase} />}
         </div>
       </div>
@@ -168,7 +230,7 @@ export function LloydExplorer({
       {!compact && (
         <div className="min-w-0">
           <ObjectivePlot
-            points={objectivePoints(phases, pi)}
+            points={objectivePoints(phases, pb.index)}
             yMax={Math.max(...objectivePoints(phases).map((q) => q.J))}
             current={phase.kind === "init" ? null : { iteration: phase.iteration, phase: phase.kind }}
             maxIteration={run.iterations}
@@ -179,6 +241,36 @@ export function LloydExplorer({
         </div>
       )}
     </div>
+  );
+}
+
+/** J split by cluster, linked to the plot: hover a term or a bar to isolate that cluster. */
+function ObjectiveBreakdown({ X, phase, scale }: { X: Vec2[]; phase: Phase; scale: number }) {
+  const { focus } = useFocus();
+  const parts = clusterObjectives(X, phase.centroids, phase.labels!);
+  const total = parts.reduce((a, v) => a + v, 0);
+  const fc = focus?.kind === "cluster" ? focus.j : null;
+  const W = 400;
+  const offsets = parts.map((_, j) => parts.slice(0, j).reduce((a, v) => a + v, 0));
+  const muIdx = phase.kind === "assign" ? phase.iteration - 1 : phase.iteration;
+  return (
+    <LinkedMath className="rounded-md border border-line px-3 py-2 text-[14px]">
+      <div className="text-[12px] font-medium text-fg-2">Objective by cluster · hover to isolate one</div>
+      <LTexBlock className="[&_.katex-display]:my-1">{`\\begin{aligned} J\\big(c^{(${phase.iteration})}, \\mu^{(${muIdx})}\\big) &= \\textstyle\\sum_j J_j, \\qquad J_j = \\sum_{i \\in C_j}\\lVert x_i - \\mu_j\\rVert^2 \\\\ &= ${parts.map((v, j) => hl({ kind: "cluster", j }, texNum(v, 2))).join(" + ")} = ${texNum(total, 3)} \\end{aligned}`}</LTexBlock>
+      <svg viewBox={`0 0 ${W} 16`} className="block h-4 w-full" role="img" aria-label={`J split by cluster: ${parts.map((v, j) => `cluster ${j + 1}: ${fmt(v, 2)}`).join(", ")}; total ${fmt(total, 3)}.`}>
+        <rect x={0} y={0} width={W} height={16} fill="var(--surface-2)" />
+        {parts.map((v, j) => {
+          const x = (offsets[j] / scale) * W;
+          const w = (v / scale) * W;
+          return (
+            <rect key={j} x={x} y={0} width={Math.max(0, w)} height={16} fill={clusterColor(j)} opacity={fc == null || fc === j ? 0.85 : 0.2} stroke="var(--surface)" strokeWidth={1} data-hl={encodeFocus({ kind: "cluster", j })}>
+              <title>{`cluster ${j + 1}: J = ${fmt(v, 3)}`}</title>
+            </rect>
+          );
+        })}
+      </svg>
+      <div className="mt-0.5 text-[11px] text-fg-3">Bar length is on the scale of the largest J in this run, so it shrinks as the algorithm proceeds.</div>
+    </LinkedMath>
   );
 }
 
@@ -311,7 +403,7 @@ function PointInspector({ X, i, phase }: { X: Vec2[]; i: number; phase: Phase })
 export function distanceTex(x: Vec2, c: Vec2, i: number, j: number, d: number): string {
   const dx = x[0] - c[0];
   const dy = x[1] - c[1];
-  return `\\begin{aligned} x_{${i + 1}} - \\mu_{${j + 1}} &= (${texNum(dx, 3)},\\ ${texNum(dy, 3)}) \\\\ \\lVert x_{${i + 1}} - \\mu_{${j + 1}}\\rVert^2 &= ${texNum(dx, 3, true)}^2 + ${texNum(dy, 3, true)}^2 = ${texNum(d, 4)} \\end{aligned}`;
+  return `\\begin{aligned} x_{${i + 1}} - \\mu_{${j + 1}} &= (${texNum(dx, 3)},\\ ${texNum(dy, 3)}) \\\\ \\lVert x_{${i + 1}} - \\mu_{${j + 1}}\\rVert^2 &= ${texSq(dx, 3)} + ${texSq(dy, 3)} = ${texNum(d, 4)} \\end{aligned}`;
 }
 
 /* ------------------------------------------------------------------ comparing initializations */

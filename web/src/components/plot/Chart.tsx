@@ -25,6 +25,16 @@ export interface HoverPoint {
   content: ReactNode;
 }
 
+export interface DragSpec {
+  /** Draggable handles in data coordinates. */
+  points: { x: number; y: number }[];
+  /** Called while dragging, with the new position in data coordinates (clamped to the axes). */
+  onDrag: (index: number, x: number, y: number) => void;
+  onEnd?: () => void;
+  /** Grab radius in pixels. */
+  radius?: number;
+}
+
 export interface LegendItem {
   label: string;
   color: string;
@@ -82,6 +92,8 @@ export function Chart({
   table,
   aspect,
   onPlotClick,
+  onHoverChange,
+  drag,
   children,
 }: {
   x: AxisSpec;
@@ -96,11 +108,22 @@ export function Chart({
   aspect?: "equal";
   /** Click anywhere in the plot area, in data coordinates. Takes precedence over onSelect. */
   onPlotClick?: (x: number, y: number) => void;
+  /** Index of the hovered hover point (null when none), for linking to other views. */
+  onHoverChange?: (index: number | null) => void;
+  /** Pointer-draggable handles (pointer only; pair with a keyboard-accessible control). */
+  drag?: DragSpec;
   children: (s: Scales) => ReactNode;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const clipId = "clip" + useId().replace(/[^a-zA-Z0-9]/g, "");
-  const [hi, setHi] = useState<number | null>(null);
+  const [hi, setHiState] = useState<number | null>(null);
+  const [dragging, setDragging] = useState<number | null>(null);
+  const [nearHandle, setNearHandle] = useState(false);
+  const justDragged = useRef(false);
+  const setHi = (v: number | null) => {
+    if (v !== hi) onHoverChange?.(v);
+    setHiState(v);
+  };
 
   const innerW = Math.max(0, width - M.left - M.right);
   const innerH = height - M.top - M.bottom;
@@ -151,7 +174,23 @@ export function Chart({
     return best >= 0 && bestD <= limit ? best : null;
   };
 
-  const local = (e: React.MouseEvent<SVGRectElement>) => {
+  const findHandle = (px: number, py: number) => {
+    if (!drag) return null;
+    const lim = (drag.radius ?? 16) ** 2;
+    let best: number | null = null;
+    let bestD = lim;
+    drag.points.forEach((p, i) => {
+      const d = (scales.x(p.x) - px) ** 2 + (scales.y(p.y) - py) ** 2;
+      if (Number.isFinite(d) && d <= bestD) {
+        bestD = d;
+        best = i;
+      }
+    });
+    return best;
+  };
+  const toData = (px: number, py: number): [number, number] => [xs.invert(Math.min(innerW, Math.max(0, px))), ys.invert(Math.min(innerH, Math.max(0, py)))];
+
+  const local = (e: React.MouseEvent<SVGRectElement> | React.PointerEvent<SVGRectElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     return [e.clientX - r.left, e.clientY - r.top] as const;
   };
@@ -205,15 +244,48 @@ export function Chart({
                   <circle cx={scales.x(hp.x)} cy={scales.y(hp.y)} r={6} fill="none" stroke="var(--fg)" strokeWidth={1.5} />
                 </g>
               )}
-              {hover && (
+              {(hover || drag || onPlotClick) && (
                 <rect
                   width={innerW}
                   height={innerH}
                   fill="transparent"
-                  style={{ cursor: onPlotClick ? "copy" : onSelect ? "pointer" : "crosshair" }}
-                  onPointerMove={(e) => setHi(findNearest(...local(e)))}
-                  onPointerLeave={() => setHi(null)}
+                  style={{
+                    cursor: dragging !== null ? "grabbing" : nearHandle ? "grab" : onPlotClick ? "copy" : onSelect ? "pointer" : "crosshair",
+                    touchAction: drag ? "none" : undefined,
+                  }}
+                  onPointerDown={(e) => {
+                    const h = findHandle(...local(e));
+                    if (h === null) return;
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    setDragging(h);
+                    setHi(null);
+                    e.preventDefault();
+                  }}
+                  onPointerMove={(e) => {
+                    const [px, py] = local(e);
+                    if (dragging !== null && drag) {
+                      drag.onDrag(dragging, ...toData(px, py));
+                      return;
+                    }
+                    if (drag) setNearHandle(findHandle(px, py) !== null);
+                    setHi(findNearest(px, py));
+                  }}
+                  onPointerUp={(e) => {
+                    if (dragging === null) return;
+                    e.currentTarget.releasePointerCapture(e.pointerId);
+                    setDragging(null);
+                    justDragged.current = true;
+                    drag?.onEnd?.();
+                  }}
+                  onPointerLeave={() => {
+                    setHi(null);
+                    setNearHandle(false);
+                  }}
                   onClick={(e) => {
+                    if (justDragged.current) {
+                      justDragged.current = false;
+                      return;
+                    }
                     const [px, py] = local(e);
                     if (onPlotClick) return onPlotClick(xs.invert(px), ys.invert(py));
                     const i = findNearest(px, py);

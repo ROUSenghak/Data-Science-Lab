@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo, type ReactNode } from "react";
+import { useFocus } from "@/components/anim/Focus";
 import { Chart, Legend, linePath, type LegendItem } from "@/components/plot/Chart";
+import { focusedCluster } from "@/lib/anim/focus";
 import { fmt } from "@/lib/format";
 import { sqDist, voronoiCell, type Vec2 } from "@/lib/ml/kmeans";
 
@@ -122,6 +124,8 @@ export function ClusterPlot({
   ariaLabel,
   pointNote,
   changedLabel = "changed cluster",
+  spokes = false,
+  onCentroidDrag,
 }: {
   X: Vec2[];
   /** Cluster of each point; null = not assigned yet (grey). */
@@ -146,7 +150,14 @@ export function ClusterPlot({
   pointNote?: (i: number) => ReactNode;
   /** Legend text for the ringed points. */
   changedLabel?: string;
+  /** Line from every assigned point to its centroid: a centroid at the mean is the balance point of its lines. */
+  spokes?: boolean;
+  /** Makes the centroids draggable (pointer only). */
+  onCentroidDrag?: (j: number, p: Vec2) => void;
 }) {
+  const { focus } = useFocus();
+  const fc = focusedCluster(focus);
+  const op = (j: number | null | undefined, base = 1) => (fc == null || j == null ? base : j === fc ? base : base * 0.18);
   const xDom = useMemo<[number, number]>(() => [domain.lo[0], domain.hi[0]], [domain]);
   const yDom = useMemo<[number, number]>(() => [domain.lo[1], domain.hi[1]], [domain]);
   const changedSet = useMemo(() => new Set(changed ?? []), [changed]);
@@ -196,6 +207,8 @@ export function ClusterPlot({
         <Legend items={[{ label: "previous centroid → move", color: "var(--fg-2)", kind: "arrow" }]} />
       )}
       {polys && <Legend items={[{ label: "nearest-centroid region (Voronoi cell)", color: "var(--viz-axis)", kind: "dashed" }]} />}
+      {spokes && labels && centroids && <Legend items={[{ label: "point → its centroid", color: "var(--fg-3)", kind: "line" }]} />}
+      {onCentroidDrag && <span className="text-fg-3">drag a centroid to choose your own start</span>}
       {changed && changed.length > 0 && <Legend items={[{ label: `${changedLabel} (${changed.length})`, color: "var(--fg)", kind: "ring" }]} />}
     </>
   );
@@ -212,6 +225,7 @@ export function ClusterPlot({
         hover={{ points: hover }}
         onSelect={onSelect}
         onPlotClick={onAddPoint ? (a, b) => onAddPoint([a, b]) : undefined}
+        drag={onCentroidDrag && centroids ? { points: centroids.map((c) => ({ x: c[0], y: c[1] })), onDrag: (j, a, b) => onCentroidDrag(j, [a, b]), radius: 14 } : undefined}
         table={{
           columns: ["i", "x₁", "x₂", "cluster"],
           rows: X.map((p, i) => [i + 1, fmt(p[0], 4), fmt(p[1], 4), labels && labels[i] >= 0 ? labels[i] + 1 : "—"]),
@@ -221,9 +235,17 @@ export function ClusterPlot({
           <g clipPath={`url(#${s.clipId})`}>
             {polys?.map((poly, j) =>
               poly.length ? (
-                <path key={`c${j}`} d={linePath(poly, s) + "Z"} fill={clusterColor(j)} fillOpacity={0.07} stroke="var(--viz-axis)" strokeWidth={1} strokeDasharray="4 3" />
+                <path key={`c${j}`} d={linePath(poly, s) + "Z"} fill={clusterColor(j)} fillOpacity={fc === j ? 0.16 : 0.07} stroke="var(--viz-axis)" strokeWidth={1} strokeDasharray="4 3" />
               ) : null,
             )}
+            {spokes &&
+              labels &&
+              centroids &&
+              X.map((p, i) => {
+                const c = centroids[labels[i]];
+                if (!c || labels[i] < 0) return null;
+                return <line key={`sp${i}`} x1={s.x(p[0])} y1={s.y(p[1])} x2={s.x(c[0])} y2={s.y(c[1])} stroke={clusterColor(labels[i])} strokeWidth={1} opacity={op(labels[i], 0.3)} />;
+              })}
             {distancesFrom != null && centroids && X[distancesFrom] && (() => {
               const p = X[distancesFrom];
               const d = centroids.map((c) => sqDist(p, c));
@@ -247,10 +269,12 @@ export function ClusterPlot({
               return (
                 <path
                   key={i}
+                  className="viz-recolor"
                   transform={`translate(${s.x(p[0]).toFixed(2)},${s.y(p[1]).toFixed(2)})`}
                   d={markerPath(assigned ? l : 0, 4.2)}
-                  fill={assigned ? clusterColor(l) : "var(--viz-data)"}
+                  style={{ fill: assigned ? clusterColor(l) : "var(--viz-data)" }}
                   fillOpacity={assigned ? 0.9 : 0.75}
+                  opacity={op(assigned ? l : null)}
                   stroke="var(--surface)"
                   strokeWidth={1}
                 />
@@ -288,7 +312,7 @@ export function ClusterPlot({
               })}
             {centroids?.map((c, j) =>
               Number.isFinite(c[0]) && Number.isFinite(c[1]) ? (
-                <g key={`mu${j}`} transform={`translate(${s.x(c[0]).toFixed(2)},${s.y(c[1]).toFixed(2)})`}>
+                <g key={`mu${j}`} transform={`translate(${s.x(c[0]).toFixed(2)},${s.y(c[1]).toFixed(2)})`} opacity={op(j)}>
                   <path d={markerPath(j, 7.5)} fill={clusterColor(j)} stroke="var(--fg)" strokeWidth={1.75} />
                   <text x={11} y={-9} fontSize={12} fontWeight={600} fill="var(--fg)" stroke="var(--surface)" strokeWidth={3} paintOrder="stroke" className="select-none">
                     μ{j + 1}

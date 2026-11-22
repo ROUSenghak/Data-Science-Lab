@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { FocusProvider } from "@/components/anim/Focus";
 import { Button } from "@/components/ui/controls";
 import { Panel } from "@/components/ui/primitives";
 import { fmt } from "@/lib/format";
@@ -21,7 +22,16 @@ const FRAMEWORKS = [
 ] as const;
 type FrameworkKey = (typeof FRAMEWORKS)[number]["key"];
 
+/** The plots share a focus (hover a point to see its residual and squared error). */
 export function CodeLab() {
+  return (
+    <FocusProvider>
+      <CodeLabInner />
+    </FocusProvider>
+  );
+}
+
+function CodeLabInner() {
   /** Recent gradient-descent runs per experiment, newest last (for comparison). */
   const [history, setHistory] = useState<Record<string, RunSummary[]>>({});
   const serials = useRef<Record<string, number>>({});
@@ -157,7 +167,7 @@ export function CodeLab() {
           {data && (
             <>
               <Panel title="Data and model">
-                <DataFitPlot data={data} lines={fitLines} residualFrom={yHat} selected={point} onSelect={setPoint} height={280} />
+                <DataFitPlot data={data} lines={fitLines} residualFrom={yHat} squares={frame?.snap.step === "loss" ? true : "focus"} selected={point} onSelect={setPoint} height={280} />
               </Panel>
               <div className="grid gap-4 lg:grid-cols-2">
                 <Panel title="Parameter space (w, b)">
@@ -166,6 +176,8 @@ export function CodeLab() {
                     trajectory={paramPath(frames, i)}
                     current={st?.w != null && st?.b != null ? [st.w, st.b] : null}
                     next={showNext ? [st!.w! - st!.lr! * st!.dw!, st!.b! - st!.lr! * st!.db!] : null}
+                    components={showNext}
+                    levelThrough={showNext}
                     anchor={run?.params.w_init != null ? [run.params.w_init, run.params.b_init] : undefined}
                     height={260}
                   />

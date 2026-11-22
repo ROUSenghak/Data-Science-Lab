@@ -216,6 +216,7 @@ export function KMeansCodeLab() {
                 selected={sel}
                 onSelect={setPoint}
                 distancesFrom={showDistances ? sel : null}
+                spokes={step === "assign" || step === "update" || step === "objective"}
                 domain={domain}
                 height={380}
                 ariaLabel={`Data and clusters at snapshot ${i + 1}`}
