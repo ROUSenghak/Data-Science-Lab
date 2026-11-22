@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/controls";
 import { Panel } from "@/components/ui/primitives";
 import { fmt } from "@/lib/format";
 import { leastSquares, stability } from "@/lib/ml/linreg";
-import { DataFitPlot, LossSurfacePlot, type FitLine } from "@/labs/linear-regression/plots";
+import { LossLandscapeView } from "@/labs/linear-regression/LossLandscapeView";
+import { DataFitPlot, type FitLine } from "@/labs/linear-regression/plots";
 import { findStep, foldSnapshots, paramPath, trainingHistory, type Frame } from "./fold";
 import { Inspector } from "./Inspector";
 import { MAX_RUNS, RunComparison, summarizeRun, type RunSummary } from "./RunComparison";
@@ -171,7 +172,10 @@ function CodeLabInner() {
               </Panel>
               <div className="grid gap-4 lg:grid-cols-2">
                 <Panel title="Parameter space (w, b)">
-                  <LossSurfacePlot
+                  <LossLandscapeView
+                    title="Traced (w, b) on the loss"
+                    currentLabel="traced (w, b)"
+                    emphasizeHeight={frame?.snap.step === "loss"}
                     data={data}
                     trajectory={paramPath(frames, i)}
                     current={st?.w != null && st?.b != null ? [st.w, st.b] : null}

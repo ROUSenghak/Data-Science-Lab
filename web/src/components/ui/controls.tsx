@@ -109,7 +109,17 @@ export function Button({
   );
 }
 
-export function Segmented<T extends string>({ value, options, onChange, ariaLabel }: { value: T; options: { value: T; label: ReactNode }[]; onChange: (v: T) => void; ariaLabel: string }) {
+export function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+  ariaLabel,
+}: {
+  value: T;
+  options: { value: T; label: ReactNode; disabled?: boolean; title?: string }[];
+  onChange: (v: T) => void;
+  ariaLabel: string;
+}) {
   return (
     <div role="radiogroup" aria-label={ariaLabel} className="inline-flex rounded-md border border-line-strong p-0.5 text-[12px]">
       {options.map((o) => (
@@ -118,8 +128,10 @@ export function Segmented<T extends string>({ value, options, onChange, ariaLabe
           type="button"
           role="radio"
           aria-checked={value === o.value}
+          disabled={o.disabled}
+          title={o.title}
           onClick={() => onChange(o.value)}
-          className={`rounded px-2 py-1 ${value === o.value ? "bg-surface-2 font-medium text-fg" : "text-fg-3 hover:text-fg"}`}
+          className={`rounded px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40 ${value === o.value ? "bg-surface-2 font-medium text-fg" : "text-fg-3 hover:text-fg"}`}
         >
           {o.label}
         </button>

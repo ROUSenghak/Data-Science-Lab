@@ -47,11 +47,13 @@ web/src/
   content/curriculum.ts      modules, topics, labs, projects, search index (single source of truth)
   lib/ml/                    pure TypeScript math (linreg, kmeans, seeded RNG) and its tests
   lib/ml/gdTimeline.ts       gradient descent as displayable frames, convergence regime, eigen-direction errors, run summaries
+  lib/ml/lossLandscape.ts    loss-surface geometry shared by the 2D and 3D views: window, contour levels, exact grid, clipping
   lib/anim/                  pure animation logic: playback reducer, tween rules, focus keys (equation ↔ plot)
   components/anim/           usePlayback, useTween, useReducedMotion, PlaybackBar, FocusProvider/LinkedMath, PredictPrompt
+  components/plot3d/         reusable 3D plot (three.js + React Three Fiber): axes, labels, camera, primitives, WebGL fallback
   components/                layout (header, search, theme), math (KaTeX), plot (SVG Chart), code (CodeView), ui
-  labs/linear-regression/    plots, gradient-descent explorer, two-run comparison, playground, lesson widgets
-  labs/k-means/              cluster plot (Voronoi cells), objective plot, Lloyd stepper, init comparison, elbow, lesson widgets
+  labs/linear-regression/    plots, gradient-descent explorer, two-run comparison, 2D/3D loss landscape, playground, lesson widgets
+  labs/k-means/              cluster plot (Voronoi cells), objective plot, Lloyd stepper (2D and 3D), init comparison, elbow, lesson widgets
   codelab/                   API client, wire types, snapshot folding, linear-regression Inspector and CodeLab
   codelab/useCodeLab.ts      lab-independent state: load, run, replay, keyboard (shared by every Code Lab page)
   codelab/shell.tsx          lab-independent UI: toolbar, code panel, output, variables, callouts
@@ -96,7 +98,7 @@ Every animated view follows the same rules, enforced in `lib/anim/` and tested i
 2. **Tweens are labelled visuals, not iterations.** `useTween` only animates a *single* step between finite states, and always starts from the previous computed state. A gradient-descent glide follows the exact segment θₜ → θₜ − η∇L. A centroid glide shows where μⱼ jumps, and the Voronoi cells are recomputed exactly for the centroids as drawn. Jumps over several states snap. Equations and tables always show the computed state.
 3. **Equations and plots share a focus.** Equation terms are marked with `hl(focus, tex)`, which KaTeX renders as `\htmlData` (the only trusted command). Hovering a term emphasises the matching residual, squared error, gradient component or cluster, and hovering the plot highlights the term.
 4. **Reduced motion is respected.** With `prefers-reduced-motion`, tweens snap and CSS transitions are off.
-5. **No dependency was added**: transitions are a small requestAnimationFrame hook.
+5. **Transitions are a small requestAnimationFrame hook**, shared by the 2D and 3D views. The only dependency added is three.js / React Three Fiber, for the 3D views below.
 
 What the gradient-descent explorer shows (`labs/linear-regression/GradientDescentExplorer.tsx`):
 - per epoch, or "inside an epoch" (predict → loss → gradient → update);
@@ -108,6 +110,28 @@ What the gradient-descent explorer shows (`labs/linear-regression/GradientDescen
 - a prediction to make before playing.
 
 `GDComparison` replays two learning rates in sync and plots the excess loss on a log axis.
+
+## 3D views
+
+3D is used in two places where it shows something the 2D view cannot: the loss surface of linear regression, and K-Means on three features. Every 2D view is kept; 3D is an alternative, never a replacement.
+
+**Loss landscape** (`labs/linear-regression/LossLandscapeView.tsx`). The loss panel of the fit explorer, the gradient-descent explorer, the two-run comparison and the Code Lab has a *2D contours / 3D surface* switch.
+- Both views receive the same props from the same parent state (data, window, trajectory, current θ, pending update, focus), so switching never changes the experiment or the playback position. In the Code Lab the 3D marker is the traced Python (w, b).
+- One pure module, `lib/ml/lossLandscape.ts`, gives both views the window (`autoDomain`), the contour levels (`contourLevels`) and the surface colour (`levelShade`, the 2D view's layered fills).
+- Exact values: surface nodes, contour heights, iterates, the marker and the hover read-out are `mse()` evaluations. Between nodes the surface is flat triangles; the page states the bound `interpolationErrorBound` (h²λmax/8). Segments between iterates are drawn on the surface because θ moves in a straight line in (w, b); the in-between points are not iterations.
+- The box top is 30% above the starting loss (`plotTop`), and the surface and paths are cut there by a clipping plane (`clipAbove`), not squashed. Without this, the window's corner loss (≈ 300) would push the whole descent into the bottom few percent of the box.
+- Linked to the equations: hovering ∂L/∂w or ∂L/∂b emphasises that component of the update on the floor; hovering L(θ), or the *loss* stage inside an epoch, emphasises the marker's height (the loss is the height).
+- Clicking the surface sets θ₀, as clicking the 2D plot does.
+
+**K-Means with three features** (`labs/k-means/KMeans3DExplorer.tsx`, lesson section *More than two features*). It uses the same Lloyd implementation (`lib/ml/kmeans.ts` is dimension-generic; the 2D results are unchanged and still match the NumPy fixtures) and the same playback. Two of the three generating groups share their (x₁, x₂) centre, so *Top view* (the projection onto x₁, x₂) shows two blobs where the algorithm finds three. All axes share one unit, so drawn distances are the distances used.
+
+**Foundation** (`components/plot3d/`, reusable for PCA, probability surfaces and similar views later):
+- `Plot3D` provides box axes with tick labels on the edges facing the camera, HTML labels projected each frame, and an orthographic camera, so the top view is exactly the 2D chart.
+- Orbit only, with no panning and no automatic rotation. Elevation is limited. The wheel scrolls the page unless Ctrl/⌘ is held, and vertical touch swipes scroll the page.
+- Keyboard, when the plot is focused: ← → rotate, ↑ ↓ tilt, + − zoom, T top view, 0 reset. Arrow keys do not reach the Code Lab's replay shortcuts.
+- `frameloop="demand"`: nothing is drawn while the scene is static (checked: 0 draw calls when idle).
+- `scene.ts` (pure, tested) holds the data→scene mapping, camera orbit, zoom fit and tick placement. `primitives.tsx` holds fat lines, instanced dots and arrows, all disposed on change. `support.ts` holds WebGL detection and theme colours.
+- three.js and React Three Fiber are loaded with `next/dynamic` only when a 3D view is opened. Without WebGL, the 3D option is disabled and the 2D view (or, for K-Means, two exact projections) is shown; an error boundary does the same if WebGL fails at runtime.
 
 ## Tests
 
@@ -137,6 +161,9 @@ What the gradient-descent explorer shows (`labs/linear-regression/GradientDescen
   - tweens end exactly on the computed state and never animate jumps, non-finite values or reduced motion;
   - focus keys round-trip through KaTeX's rendered `data-hl`;
   - squared numbers typeset at every magnitude (a diverging run reaches 1e26).
+- `web/src/lib/ml/lossLandscape.test.ts`, `web/src/components/plot3d/scene.test.ts` (27 tests): the surface grid holds exact `mse()` values; the window maximum is at a corner; the stated mesh error bound holds; contour levels and shading match the 2D view; path clipping (window and box top) keeps exact iterates; the box top contains the start; the top view is oriented like the 2D chart; the zoom fit keeps every box corner on the canvas.
+- `web/src/labs/linear-regression/LossLandscapeView.test.tsx` (jsdom, 5 tests, three.js stubbed): the 3D view receives exactly the computed frame (θₜ, path, pending update, box top); switching 2D ↔ 3D keeps the playback position; changing η recomputes the same run; the *loss* stage and hovered equation terms reach the 3D view; without WebGL the 3D option is disabled and the 2D view stays.
+- `web/src/lib/ml/kmeans3d.test.ts`, `web/src/labs/k-means/KMeans3DExplorer.test.tsx` (7 tests): 3D distances use every feature; every 3D half-step equals an independent recomputation and J never increases; the 3D figure gets the computed phases and falls back to two projections without WebGL. One empirical, seed-specific test backs the lesson's claim (3 features recover the groups, the first 2 cannot).
 - `kmeans.test.ts` also checks what the K-Means animation claims: per-cluster Jⱼ sum to J, and the points ringed "will switch" after an update are exactly those the next assignment changes.
 
 ## Adding a lab

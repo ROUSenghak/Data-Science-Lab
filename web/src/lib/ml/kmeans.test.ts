@@ -95,7 +95,7 @@ describe("K-Means steps", () => {
 
   it("the mean minimizes the within-cluster sum of squares (guarantee)", () => {
     const pts: Vec2[] = generateClusters("blobs", 30, 3).X;
-    const m = updateCentroids(pts, pts.map(() => 0), [[0, 0]]).centroids[0];
+    const m = updateCentroids(pts, pts.map(() => 0), [[0, 0]] as Vec2[]).centroids[0];
     const J = (c: Vec2) => pts.reduce((s, p) => s + sqDist(p, c), 0);
     for (const d of [[1e-3, 0], [0, -1e-3], [0.5, 0.5]] as Vec2[]) expect(J([m[0] + d[0], m[1] + d[1]])).toBeGreaterThan(J(m));
   });

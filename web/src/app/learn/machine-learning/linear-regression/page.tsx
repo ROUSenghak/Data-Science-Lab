@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import type { ReactNode } from "react";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { Tex, TexBlock } from "@/components/math/Tex";
-import { Callout, ExecutionBadge, Expand, SectionHeading } from "@/components/ui/primitives";
+import { Exercise, Figure, Lead } from "@/components/ui/lesson";
+import { Callout, Expand, SectionHeading } from "@/components/ui/primitives";
 import { LINEAR_REGRESSION_SECTIONS } from "@/content/curriculum";
 import { LessonFit, LessonGD } from "@/labs/linear-regression/LessonWidgets";
 
@@ -11,34 +11,6 @@ export const metadata: Metadata = {
   title: "Linear Regression",
   description: "Least squares, gradient descent, and the stability limit of the learning rate.",
 };
-
-const Lead = ({ children }: { children: ReactNode }) => <p className="text-[16.5px] leading-relaxed text-fg-2">{children}</p>;
-
-function Widget({ title, children, kind = "browser" }: { title: string; children: ReactNode; kind?: "browser" | "python" }) {
-  return (
-    <figure className="my-6 rounded-lg border border-line bg-surface p-4">
-      <figcaption className="mb-3 flex flex-wrap items-center justify-between gap-2 text-[13px] font-medium text-fg-2">
-        {title}
-        <ExecutionBadge kind={kind} />
-      </figcaption>
-      {children}
-    </figure>
-  );
-}
-
-function Exercise({ n, children, solution }: { n: number; children: ReactNode; solution: ReactNode }) {
-  return (
-    <li className="border-t border-line py-4">
-      <div className="flex gap-3">
-        <span className="font-mono text-sm text-fg-3">{n}.</span>
-        <div className="prose-lab min-w-0 flex-1">
-          {children}
-          <Expand title="Solution">{solution}</Expand>
-        </div>
-      </div>
-    </li>
-  );
-}
 
 export default function LinearRegressionLesson() {
   return (
@@ -65,9 +37,9 @@ export default function LinearRegressionLesson() {
           <Lead>
             Predict a number <Tex>y</Tex> from a feature <Tex>x</Tex> with a straight line. It is the simplest model trained by minimizing a loss, and the loss, gradient and learning rate here reappear unchanged in deep learning.
           </Lead>
-          <Widget title="Try it: choose a line, read its error">
+          <Figure title="Choose a line and read its error">
             <LessonFit />
-          </Widget>
+          </Figure>
 
           {/* 2 */}
           <SectionHeading id="model">The model</SectionHeading>
@@ -91,7 +63,7 @@ export default function LinearRegressionLesson() {
             <p>Why squares?</p>
             <ul>
               <li>
-                <Tex>L</Tex> is a convex quadratic in <Tex>(w, b)</Tex>: one minimum, found in closed form or by gradient descent.
+                <Tex>L</Tex> is a convex quadratic in <Tex>(w, b)</Tex>: one minimum, found in closed form or by gradient descent. Every line is one point <Tex>(w, b)</Tex> with one height <Tex>L(w, b)</Tex>; switch the loss panel in the figure above to <i>3D surface</i> to see the bowl these heights form, with the least-squares line at its bottom.
               </li>
               <li>Under Gaussian noise, minimizing it is maximum likelihood (expand below).</li>
               <li>Cost: large errors dominate, so outliers have outsized influence.</li>
@@ -146,9 +118,12 @@ export default function LinearRegressionLesson() {
               Here <Tex>{"H = 2\\begin{bmatrix}\\overline{x^2} & \\bar x \\\\ \\bar x & 1\\end{bmatrix}"}</Tex>. When <Tex>{"\\bar x \\neq 0"}</Tex>, <Tex>w</Tex> and <Tex>b</Tex> are coupled and the ellipses are tilted. Centering <Tex>x</Tex> removes the coupling.
             </p>
           </Expand>
-          <Widget title="Watch gradient descent on the exact loss surface">
+          <Lead>
+            In the figure, the loss panel can show the same run as contours or as the surface itself. In 3D, θ moves down the bowl: the height of the marker is the loss computed in step 2, and the orange arrow is the update of step 4, traced over the surface so you can see whether it lands lower or overshoots up the opposite wall.
+          </Lead>
+          <Figure title="Gradient descent on the exact loss surface">
             <LessonGD />
-          </Widget>
+          </Figure>
 
           {/* 6 */}
           <SectionHeading id="implementation">Implementation</SectionHeading>

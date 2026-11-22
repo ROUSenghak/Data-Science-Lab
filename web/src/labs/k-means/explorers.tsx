@@ -22,7 +22,7 @@ export const INIT_METHODS: { id: InitMethod; label: string; hint: string }[] = [
   { id: "uniform", label: "uniform box", hint: "uniform positions in the data's bounding box (can leave clusters empty)" },
 ];
 
-export function objectivePoints(phases: Phase[], upTo = phases.length - 1): ObjectivePoint[] {
+export function objectivePoints<V extends number[]>(phases: Phase<V>[], upTo = phases.length - 1): ObjectivePoint[] {
   return phases.slice(0, upTo + 1).flatMap((p) => (p.kind === "init" || p.J == null ? [] : [{ iteration: p.iteration, phase: p.kind, J: p.J }]));
 }
 

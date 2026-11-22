@@ -1,5 +1,6 @@
 /**
- * K-Means (Lloyd's algorithm) in two dimensions. Pure functions; verified against the
+ * K-Means (Lloyd's algorithm) for points with any number of features; the Voronoi cells and the
+ * synthetic datasets are two-dimensional. Pure functions; verified against the
  * NumPy experiment (api/app/experiments/templates/kmeans_numpy.py) in kmeans.test.ts.
  *
  * Conventions shared with the NumPy template:
@@ -10,6 +11,9 @@
 import { createRng, mulberry32 } from "./random";
 
 export type Vec2 = [number, number];
+export type Vec3 = [number, number, number];
+/** A point with any number of features. Lloyd's algorithm does not depend on the dimension. */
+export type Vec = number[];
 export type InitMethod = "random" | "kmeans++" | "uniform";
 
 /** Largest K in the interactive labs (one colour and one marker shape per cluster). */
@@ -17,17 +21,22 @@ export const MAX_K = 8;
 
 export class KMeansInputError extends Error {}
 
-export function validateInput(X: Vec2[], k: number): void {
+export function validateInput(X: readonly Vec[], k: number): void {
   if (!Number.isInteger(k) || k < 1) throw new KMeansInputError(`K must be a positive integer (got ${k}).`);
   if (X.length === 0) throw new KMeansInputError("No data points.");
   if (k > X.length) throw new KMeansInputError(`K = ${k} exceeds the number of points (${X.length}).`);
-  if (!X.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))) throw new KMeansInputError("Points must have finite coordinates.");
+  if (!X.every((p) => p.length === X[0].length && p.every(Number.isFinite))) throw new KMeansInputError("Points must have finite coordinates and the same number of features.");
 }
 
-export const sqDist = (a: Vec2, b: Vec2) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2;
+/** ‖a − b‖² = Σ_d (a_d − b_d)², over every feature. */
+export function sqDist(a: readonly number[], b: readonly number[]): number {
+  let s = 0;
+  for (let d = 0; d < a.length; d++) s += (a[d] - b[d]) ** 2;
+  return s;
+}
 
 /** n × k matrix of squared distances ‖xᵢ − μⱼ‖². */
-export const distanceMatrix = (X: Vec2[], C: Vec2[]) => X.map((x) => C.map((c) => sqDist(x, c)));
+export const distanceMatrix = (X: readonly Vec[], C: readonly Vec[]) => X.map((x) => C.map((c) => sqDist(x, c)));
 
 /** Index of the smallest value; ties go to the lowest index (as np.argmin). */
 export function argmin(v: number[]): number {
@@ -36,47 +45,47 @@ export function argmin(v: number[]): number {
   return best;
 }
 
-export const assign = (X: Vec2[], C: Vec2[]) => distanceMatrix(X, C).map(argmin);
+export const assign = (X: readonly Vec[], C: readonly Vec[]) => distanceMatrix(X, C).map(argmin);
 
 /** μⱼ = mean of the points with label j. Empty clusters keep their previous centroid. */
-export function updateCentroids(X: Vec2[], labels: number[], prev: Vec2[]) {
+export function updateCentroids<V extends Vec>(X: readonly V[], labels: number[], prev: readonly V[]) {
   const k = prev.length;
+  const dim = prev[0]?.length ?? 0;
   const counts = new Array<number>(k).fill(0);
-  const sums: Vec2[] = Array.from({ length: k }, () => [0, 0]);
+  const sums = Array.from({ length: k }, () => new Array<number>(dim).fill(0) as V);
   X.forEach((x, i) => {
     const j = labels[i];
     counts[j]++;
-    sums[j][0] += x[0];
-    sums[j][1] += x[1];
+    for (let d = 0; d < dim; d++) sums[j][d] += x[d];
   });
-  const centroids = prev.map((c, j): Vec2 => (counts[j] > 0 ? [sums[j][0] / counts[j], sums[j][1] / counts[j]] : [c[0], c[1]]));
+  const centroids = prev.map((c, j) => (counts[j] > 0 ? sums[j].map((v) => v / counts[j]) : [...c]) as V);
   const empty = counts.flatMap((c, j) => (c === 0 ? [j] : []));
   return { centroids, counts, sums, empty };
 }
 
 /** J = Σᵢ ‖xᵢ − μ_{cᵢ}‖², the within-cluster sum of squares (scikit-learn's inertia). */
-export function objective(X: Vec2[], C: Vec2[], labels: number[]): number {
+export function objective(X: readonly Vec[], C: readonly Vec[], labels: number[]): number {
   let s = 0;
   for (let i = 0; i < X.length; i++) s += sqDist(X[i], C[labels[i]]);
   return s;
 }
 
 /** Jⱼ = Σ_{i: cᵢ = j} ‖xᵢ − μⱼ‖², each cluster's share of J (Σⱼ Jⱼ = J). */
-export function clusterObjectives(X: Vec2[], C: Vec2[], labels: number[]): number[] {
+export function clusterObjectives(X: readonly Vec[], C: readonly Vec[], labels: number[]): number[] {
   const out = new Array<number>(C.length).fill(0);
   for (let i = 0; i < X.length; i++) out[labels[i]] += sqDist(X[i], C[labels[i]]);
   return out;
 }
 
-export function boundingBox(X: Vec2[]): { lo: Vec2; hi: Vec2 } {
-  const lo: Vec2 = [Infinity, Infinity];
-  const hi: Vec2 = [-Infinity, -Infinity];
-  for (const [a, b] of X) {
-    lo[0] = Math.min(lo[0], a);
-    lo[1] = Math.min(lo[1], b);
-    hi[0] = Math.max(hi[0], a);
-    hi[1] = Math.max(hi[1], b);
-  }
+export function boundingBox<V extends Vec>(X: readonly V[]): { lo: V; hi: V } {
+  const dim = X[0]?.length ?? 2;
+  const lo = new Array<number>(dim).fill(Infinity) as V;
+  const hi = new Array<number>(dim).fill(-Infinity) as V;
+  for (const p of X)
+    for (let d = 0; d < dim; d++) {
+      lo[d] = Math.min(lo[d], p[d]);
+      hi[d] = Math.max(hi[d], p[d]);
+    }
   return { lo, hi };
 }
 
@@ -86,16 +95,16 @@ export function boundingBox(X: Vec2[]): { lo: Vec2; hi: Vec2 } {
  *  - kmeans++: first point uniform, each next one with probability ∝ D(x)², the squared distance
  *              to the nearest centroid chosen so far. If every D(x) = 0 (fewer distinct points
  *              than k), the next one is drawn uniformly;
- *  - uniform:  uniform positions in the bounding box of the data.
+ *  - uniform:  uniform positions in the bounding box of the data (one draw per feature, in order).
  * `chosen` lists the data indices used (null for uniform).
  */
-export function initCentroids(X: Vec2[], k: number, method: InitMethod, seed: number): { centroids: Vec2[]; chosen: number[] | null } {
+export function initCentroids<V extends Vec>(X: readonly V[], k: number, method: InitMethod, seed: number): { centroids: V[]; chosen: number[] | null } {
   validateInput(X, k);
   const next = mulberry32(seed);
   const n = X.length;
   if (method === "uniform") {
     const { lo, hi } = boundingBox(X);
-    return { centroids: Array.from({ length: k }, (): Vec2 => [lo[0] + (hi[0] - lo[0]) * next(), lo[1] + (hi[1] - lo[1]) * next()]), chosen: null };
+    return { centroids: Array.from({ length: k }, () => lo.map((l, d) => l + (hi[d] - l) * next()) as V), chosen: null };
   }
   let chosen: number[];
   if (method === "random") {
@@ -120,16 +129,16 @@ export function initCentroids(X: Vec2[], k: number, method: InitMethod, seed: nu
       X.forEach((x, i) => (D2[i] = Math.min(D2[i], sqDist(x, X[pick]))));
     }
   }
-  return { centroids: chosen.map((i): Vec2 => [X[i][0], X[i][1]]), chosen };
+  return { centroids: chosen.map((i) => [...X[i]] as V), chosen };
 }
 
 /** One recorded half-step of Lloyd's algorithm. */
-export interface Phase {
+export interface Phase<V extends Vec = Vec2> {
   kind: "init" | "assign" | "update";
   /** 0 for the initialization; t = 1, 2, … for the iteration this phase belongs to. */
   iteration: number;
   /** Centroids after this phase. */
-  centroids: Vec2[];
+  centroids: V[];
   /** Labels after this phase (null before the first assignment). */
   labels: number[] | null;
   /** Objective after this phase: J(c⁽ᵗ⁾, μ⁽ᵗ⁻¹⁾) after an assignment, J(c⁽ᵗ⁾, μ⁽ᵗ⁾) after an update. */
@@ -137,7 +146,7 @@ export interface Phase {
   /** Assignment: points whose label changed. */
   changed: number[];
   /** Update: centroids before the update, cluster sizes, empty clusters, distance each centroid moved. */
-  prevCentroids?: Vec2[];
+  prevCentroids?: V[];
   counts?: number[];
   empty?: number[];
   shift?: number[];
@@ -145,22 +154,22 @@ export interface Phase {
   converged?: boolean;
 }
 
-export interface KMeansRun {
-  phases: Phase[];
+export interface KMeansRun<V extends Vec = Vec2> {
+  phases: Phase<V>[];
   /** Number of completed iterations (scikit-learn's n_iter_). */
   iterations: number;
   converged: boolean;
   /** Labels re-assigned to the returned centroids, and their inertia. */
   labels: number[];
-  centroids: Vec2[];
+  centroids: V[];
   inertia: number;
 }
 
-export function lloyd(X: Vec2[], init: Vec2[], maxIter = 100): KMeansRun {
+export function lloyd<V extends Vec>(X: readonly V[], init: readonly V[], maxIter = 100): KMeansRun<V> {
   validateInput(X, init.length);
-  let C: Vec2[] = init.map((c): Vec2 => [c[0], c[1]]);
+  let C: V[] = init.map((c) => [...c] as V);
   let labels: number[] = new Array(X.length).fill(-1);
-  const phases: Phase[] = [{ kind: "init", iteration: 0, centroids: C, labels: null, J: null, changed: [] }];
+  const phases: Phase<V>[] = [{ kind: "init", iteration: 0, centroids: C, labels: null, J: null, changed: [] }];
   let converged = false;
   let t = 0;
   while (t < maxIter) {
@@ -182,7 +191,7 @@ export function lloyd(X: Vec2[], init: Vec2[], maxIter = 100): KMeansRun {
   return { phases, iterations: t, converged, labels: finalLabels, centroids: C, inertia: objective(X, C, finalLabels) };
 }
 
-export function runKMeans(X: Vec2[], k: number, opts: { method: InitMethod; seed: number; maxIter?: number }) {
+export function runKMeans<V extends Vec>(X: readonly V[], k: number, opts: { method: InitMethod; seed: number; maxIter?: number }) {
   const init = initCentroids(X, k, opts.method, opts.seed);
   return { ...lloyd(X, init.centroids, opts.maxIter ?? 100), chosen: init.chosen };
 }
@@ -353,4 +362,42 @@ export function generateClusters(kind: ClusterDataKind, n: number, seed: number,
       break;
   }
   return { X, truth };
+}
+
+/* ------------------------------------------------------------------ three features */
+
+/**
+ * Centres of the three generating groups of `generateClusters3D`. Groups 0 and 2 have the same
+ * (x₁, x₂) and differ only in x₃: projected onto the first two features they are one blob.
+ */
+export const HIDDEN_CENTERS: Vec3[] = [
+  [-1.8, -0.6, -1.9],
+  [1.9, 0.8, 0],
+  [-1.8, -0.6, 1.9],
+];
+
+/** Three round Gaussian groups in R³ (equal sizes, σ = 0.6 · spread per feature). */
+export function generateClusters3D(n: number, seed: number, spread = 1): { X: Vec3[]; truth: number[] } {
+  const rng = createRng(seed);
+  const X: Vec3[] = [];
+  const truth: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const g = i % 3;
+    const c = HIDDEN_CENTERS[g];
+    X.push([c[0] + rng.normal(0, 0.6 * spread), c[1] + rng.normal(0, 0.6 * spread), c[2] + rng.normal(0, 0.6 * spread)]);
+    truth.push(g);
+  }
+  return { X, truth };
+}
+
+/** Fraction of points whose cluster matches the generating group, under the best relabelling (K ≤ 4). */
+export function agreement(labels: number[], truth: number[], k: number): number {
+  const perms = (a: number[]): number[][] => (a.length <= 1 ? [a] : a.flatMap((v, i) => perms([...a.slice(0, i), ...a.slice(i + 1)]).map((p) => [v, ...p])));
+  let best = 0;
+  for (const p of perms(Array.from({ length: k }, (_, j) => j))) {
+    let hits = 0;
+    for (let i = 0; i < labels.length; i++) if (p[labels[i]] === truth[i]) hits++;
+    best = Math.max(best, hits / labels.length);
+  }
+  return best;
 }

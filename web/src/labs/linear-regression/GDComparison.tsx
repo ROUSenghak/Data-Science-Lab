@@ -12,7 +12,7 @@ import { fmt } from "@/lib/format";
 import { summarizeGD, type GDSummary } from "@/lib/ml/gdTimeline";
 import { gradientDescent, leastSquares, stability, type Dataset } from "@/lib/ml/linreg";
 import { LR_RANGE, paramDomain, REGIME_LABEL } from "./GradientDescentExplorer";
-import { LossSurfacePlot } from "./plots";
+import { LossLandscapeView } from "./LossLandscapeView";
 
 const SPEEDS: Record<"slow" | "normal" | "fast", SpeedDef> = {
   slow: { label: "slow", interval: 500, stride: 1 },
@@ -128,7 +128,8 @@ export function GDComparison({ data }: { data: Dataset }) {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="min-w-0">
-          <LossSurfacePlot
+          <LossLandscapeView
+            title="Both paths on the same loss"
             data={data}
             trajectory={[]}
             domain={domain}

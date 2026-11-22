@@ -8,11 +8,15 @@ import { Button, Slider, Toggle } from "@/components/ui/controls";
 import { hl } from "@/lib/anim/focus";
 import { fmt, texNum, texSq } from "@/lib/format";
 import { leastSquares, mse, predict, type Dataset } from "@/lib/ml/linreg";
-import { DataFitPlot, LossSurfacePlot } from "./plots";
+import { LossLandscapeView } from "./LossLandscapeView";
+import { DataFitPlot } from "./plots";
 
 export { GradientDescentExplorer } from "./GradientDescentExplorer";
 
 /* ------------------------------------------------------------------ fit by hand */
+
+const W_RANGE: [number, number] = [-2, 5];
+const B_RANGE: [number, number] = [-3, 5];
 
 export function FitExplorer(props: { data: Dataset; compact?: boolean }) {
   return (
@@ -28,6 +32,8 @@ function FitExplorerInner({ data, compact = false }: { data: Dataset; compact?: 
   const [b, setB] = useState(0.5);
   const [showLS, setShowLS] = useState(false);
   const ls = useMemo(() => leastSquares(data), [data]);
+  // Fixed window (the slider ranges and θ*), so the plot does not rescale while the sliders move.
+  const domain = useMemo(() => ({ w: [Math.min(W_RANGE[0], ls.w) - 0.5, Math.max(W_RANGE[1], ls.w) + 0.5] as [number, number], b: [Math.min(B_RANGE[0], ls.b) - 0.5, Math.max(B_RANGE[1], ls.b) + 0.5] as [number, number] }), [ls]);
   const yHat = predict(w, b, data.x);
   const loss = mse(w, b, data);
   const n = data.x.length;
@@ -49,8 +55,8 @@ function FitExplorerInner({ data, compact = false }: { data: Dataset; compact?: 
       </div>
       <div className="min-w-0 space-y-3">
         <div className="grid grid-cols-2 gap-4">
-          <Slider label={<Tex>{"\\text{slope } w"}</Tex>} value={w} min={-2} max={5} step={0.01} onChange={setW} format={(v) => fmt(v, 2)} />
-          <Slider label={<Tex>{"\\text{intercept } b"}</Tex>} value={b} min={-3} max={5} step={0.01} onChange={setB} format={(v) => fmt(v, 2)} />
+          <Slider label={<Tex>{"\\text{slope } w"}</Tex>} value={w} min={W_RANGE[0]} max={W_RANGE[1]} step={0.01} onChange={setW} format={(v) => fmt(v, 2)} />
+          <Slider label={<Tex>{"\\text{intercept } b"}</Tex>} value={b} min={B_RANGE[0]} max={B_RANGE[1]} step={0.01} onChange={setB} format={(v) => fmt(v, 2)} />
         </div>
         <LinkedMath className="rounded-md border border-line bg-surface-2 px-3 py-1 text-[15px]">
           <LTexBlock>{`\\begin{aligned} L(w,b) &= \\frac{1}{${n}}\\sum_{i=1}^{${n}} r_i^2 \\\\ &= \\frac{1}{${n}}\\big(${[0, 1, 2].filter((i) => i < n).map((i) => hl({ kind: "residual", i }, texSq(r[i], 2))).join(" + ")} + \\cdots\\big) = ${hl({ kind: "loss" }, texNum(loss, 4))} \\end{aligned}`}</LTexBlock>
@@ -73,7 +79,19 @@ function FitExplorerInner({ data, compact = false }: { data: Dataset; compact?: 
             Snap to least squares
           </Button>
         </div>
-        {!compact && <LossSurfacePlot data={data} trajectory={[]} current={[w, b]} height={240} anchor={[w, b]} />}
+        {!compact && (
+          <LossLandscapeView
+            data={data}
+            trajectory={[]}
+            current={[w, b]}
+            currentLabel="your (w, b)"
+            levelThrough
+            domain={domain}
+            equalAspect
+            height={260}
+            title={<>Your line is one point on the loss surface</>}
+          />
+        )}
       </div>
     </div>
   );

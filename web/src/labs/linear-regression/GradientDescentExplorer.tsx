@@ -7,14 +7,15 @@ import { PlaybackBar } from "@/components/anim/PlaybackBar";
 import { PredictPrompt } from "@/components/anim/PredictPrompt";
 import { Tex } from "@/components/math/Tex";
 import { Segmented, Slider, Toggle } from "@/components/ui/controls";
-import { Callout } from "@/components/ui/primitives";
+import { Callout, Expand } from "@/components/ui/primitives";
 import { focusedResidual, hl } from "@/lib/anim/focus";
 import type { SpeedDef } from "@/lib/anim/playback";
 import { tweenDuration } from "@/lib/anim/tween";
 import { clamp, fmt, texNum, texSq } from "@/lib/format";
 import { buildGDTimeline, eigenErrors, frameOfEpoch, regimeOf, stepFactors, type GDFrame, type GDStage, type Regime } from "@/lib/ml/gdTimeline";
 import { gradientDescent, leastSquares, predict, stability, type Dataset } from "@/lib/ml/linreg";
-import { DataFitPlot, LossCurvePlot, LossSurfacePlot } from "./plots";
+import { LossLandscapeView } from "./LossLandscapeView";
+import { DataFitPlot, LossCurvePlot } from "./plots";
 
 /* Ranges shared by the sliders, the draggable θ₀ and the stability gauge. */
 export const LR_RANGE: [number, number] = [0.001, 0.5];
@@ -128,7 +129,8 @@ function GDExplorerInner({ data, defaultLR = 0.08, defaultDetailed = false, pred
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/* The one control that matters first: η, placed on its stability scale. */}
+      <div className="grid gap-x-8 gap-y-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] md:items-end">
         <Slider
           label={<Tex>{"\\text{learning rate } \\eta"}</Tex>}
           value={lr}
@@ -140,12 +142,27 @@ function GDExplorerInner({ data, defaultLR = 0.08, defaultDetailed = false, pred
           format={(v) => fmt(v, 3)}
           hint={<>stable iff η &lt; 2/λ<sub>max</sub> = {fmt(stab.criticalLR, 3)}</>}
         />
-        <Slider label="epochs" value={epochs} min={5} max={400} step={5} onChange={setEpochs} />
-        <Slider label={<Tex>{"w_0"}</Tex>} value={w0} min={W0_RANGE[0]} max={W0_RANGE[1]} step={0.1} onChange={setW0} format={(v) => fmt(v, 1)} hint="or drag θ₀ on the loss surface" />
-        <Slider label={<Tex>{"b_0"}</Tex>} value={b0} min={B0_RANGE[0]} max={B0_RANGE[1]} step={0.1} onChange={setB0} format={(v) => fmt(v, 1)} />
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 text-[12px]">
+            <span className="text-fg-3">where η sits (click to choose)</span>
+            <span className={regime === "diverge" ? "text-bad" : regime === "zigzag" ? "text-warn" : "text-ok"}>θ {REGIME_LABEL[regime]}</span>
+          </div>
+          <StabilityGauge lr={lr} lambdaMax={stab.lambdaMax} onPick={setLR} />
+        </div>
       </div>
-
-      <RegimePanel lr={lr} onLR={setLR} stab={stab} frame={f} data={data} />
+      <details className="group text-[12.5px] text-fg-2">
+        <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 text-fg-3 hover:text-fg [&::-webkit-details-marker]:hidden">
+          <svg width="10" height="10" viewBox="0 0 12 12" className="transition-transform group-open:rotate-90" aria-hidden>
+            <path d="M4 2l4 4-4 4" stroke="currentColor" strokeWidth="1.6" fill="none" />
+          </svg>
+          Run settings: start θ₀ = ({fmt(w0, 1)}, {fmt(b0, 1)}), {epochs} epochs
+        </summary>
+        <div className="mt-2 grid gap-x-6 gap-y-3 sm:grid-cols-3">
+          <Slider label={<Tex>{"w_0"}</Tex>} value={w0} min={W0_RANGE[0]} max={W0_RANGE[1]} step={0.1} onChange={setW0} format={(v) => fmt(v, 1)} hint="or click / drag θ₀ on the loss plot" />
+          <Slider label={<Tex>{"b_0"}</Tex>} value={b0} min={B0_RANGE[0]} max={B0_RANGE[1]} step={0.1} onChange={setB0} format={(v) => fmt(v, 1)} />
+          <Slider label="epochs" value={epochs} min={5} max={400} step={5} onChange={setEpochs} />
+        </div>
+      </details>
 
       <div className="space-y-2">
         <PlaybackBar
@@ -179,8 +196,9 @@ function GDExplorerInner({ data, defaultLR = 0.08, defaultDetailed = false, pred
         )}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-x-6 gap-y-5 lg:grid-cols-2">
         <div className="min-w-0">
+          <div className="mb-1.5 text-[12px] font-medium text-fg-2">Data and the model at this step</div>
           <DataFitPlot
             data={data}
             residualFrom={yHat}
@@ -199,10 +217,12 @@ function GDExplorerInner({ data, defaultLR = 0.08, defaultDetailed = false, pred
           </div>
         </div>
         <div className="min-w-0">
-          <LossSurfacePlot
+          <LossLandscapeView
             data={data}
             trajectory={path}
             current={[dw, db]}
+            currentLabel={`θ${sub(stage === "update" ? f.epoch + 1 : f.epoch)}`}
+            emphasizeHeight={stage === "loss"}
             next={showArrow ? [s.wNext, s.bNext] : null}
             components={showArrow}
             levelThrough={!tween.moving && !overflow}
@@ -212,15 +232,17 @@ function GDExplorerInner({ data, defaultLR = 0.08, defaultDetailed = false, pred
             start={[w0, b0]}
             onStartChange={setStart}
             height={300}
+            note2d={
+              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-fg-3">
+                <Toggle label="steep / flat directions" checked={axes} onChange={setAxes} />
+                <span>Equal axis scales, so −∇L is truly perpendicular to the level set. A glide follows the exact segment θₜ → θₜ₊₁; positions in between are not iterations.</span>
+              </div>
+            }
           />
-          <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-fg-3">
-            <Toggle label="steep / flat directions" checked={axes} onChange={setAxes} />
-            <span>Equal axis scales, so −∇L is truly perpendicular to the level set. A glide follows the exact segment θₜ → θₜ₊₁; positions in between are not iterations.</span>
-          </div>
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+      <div className="grid gap-x-6 gap-y-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <div className="min-w-0">
           <GDEquations frame={f} data={data} lr={lr} r={r} point={point} pointSource={hovered != null ? "hovered" : pinned != null ? "pinned" : "largest"} />
         </div>
@@ -238,6 +260,8 @@ function GDExplorerInner({ data, defaultLR = 0.08, defaultDetailed = false, pred
           At epoch {f.epoch} the update produced a non-finite number, so the run stops here. Each step multiplied the steep-direction error by |1 − ηλ<sub>max</sub>| = {fmt(Math.abs(1 - lr * stab.lambdaMax), 2)}.
         </Callout>
       )}
+
+      <EigenPanel lr={lr} stab={stab} frame={f} data={data} />
     </div>
   );
 }
@@ -328,50 +352,44 @@ function RegimeExplanation({ regime, lr, lambdaMax }: { regime: Regime; lr: numb
   );
 }
 
-function RegimePanel({ lr, onLR, stab, frame, data }: { lr: number; onLR: (v: number) => void; stab: ReturnType<typeof stability>; frame: GDFrame; data: Dataset }) {
+/** Why the path glides, zigzags or diverges: the error along H's eigen-directions at this step. */
+function EigenPanel({ lr, stab, frame, data }: { lr: number; stab: ReturnType<typeof stability>; frame: GDFrame; data: Dataset }) {
   const regime = regimeOf(lr, stab.lambdaMax);
   const fac = stepFactors(lr, stab.lambdaMin, stab.lambdaMax);
   const finite = Number.isFinite(frame.w) && Number.isFinite(frame.b);
   const e = finite ? eigenErrors(frame.w, frame.b, data) : null;
   const slowSteps = Math.abs(fac.flat) < 1 ? Math.ceil(Math.log(10) / -Math.log(Math.abs(fac.flat))) : Infinity;
   return (
-    <div className="grid gap-3 rounded-md border border-line px-3 py-2 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-      <div className="min-w-0">
-        <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2 text-[12px]">
-          <span className="font-medium text-fg-2">Where η sits</span>
-          <span className={regime === "diverge" ? "text-bad" : regime === "zigzag" ? "text-warn" : "text-ok"}>θ {REGIME_LABEL[regime]}</span>
-        </div>
-        <StabilityGauge lr={lr} lambdaMax={stab.lambdaMax} onPick={onLR} />
-      </div>
-      <div className="min-w-0 text-[12.5px] text-fg-2">
-        <div className="mb-1 text-[12px] font-medium text-fg-2">Error along H&apos;s eigen-directions, at this step</div>
-        <table className="w-full font-mono tabular-nums">
-          <thead className="font-sans text-[11px] text-fg-3">
-            <tr>
-              <th className="py-0.5 text-left font-medium">direction</th>
-              <th className="py-0.5 text-right font-medium">error eₖ</th>
-              <th className="py-0.5 text-right font-medium">× per step</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td className="py-0.5 font-sans">steep (λ = {fmt(stab.lambdaMax, 2)})</td>
-              <td className="py-0.5 text-right">{fmt(e?.steep, 3)}</td>
-              <td className={`py-0.5 text-right ${Math.abs(fac.steep) >= 1 ? "text-bad" : fac.steep < 0 ? "text-warn" : ""}`}>{fmt(fac.steep, 3)}</td>
-            </tr>
-            <tr>
-              <td className="py-0.5 font-sans">flat (λ = {fmt(stab.lambdaMin, 2)})</td>
-              <td className="py-0.5 text-right">{fmt(e?.flat, 3)}</td>
-              <td className="py-0.5 text-right">{fmt(fac.flat, 3)}</td>
-            </tr>
-          </tbody>
-        </table>
-        <p className="mt-1 text-[11.5px] leading-snug text-fg-3">
-          eₖ(t+1) = (1 − ηλₖ)·eₖ(t), exactly.{" "}
-          {regime !== "diverge" && Number.isFinite(slowSteps) && <>The flat direction needs ≈ {slowSteps} epochs per 10× reduction (κ = {fmt(stab.condition, 1)}).</>}
-        </p>
-      </div>
-    </div>
+    <Expand title="Why it glides, zigzags or diverges: the error along H's eigen-directions">
+      <p>
+        Near the minimum the error θ − θ* splits into a component along the steep direction of the bowl (eigenvalue λ<sub>max</sub> of the Hessian H) and one along the flat direction (λ<sub>min</sub>). Each epoch multiplies them by exactly 1 − ηλ. Turn on <i>steep / flat directions</i> in the 2D view to see the two axes.
+      </p>
+      <table className="mt-2 w-full max-w-lg font-mono text-[12.5px] tabular-nums">
+        <thead className="font-sans text-[11px] text-fg-3">
+          <tr>
+            <th className="py-0.5 text-left font-medium">direction</th>
+            <th className="py-0.5 text-right font-medium">error eₖ now</th>
+            <th className="py-0.5 text-right font-medium">× per step</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td className="py-0.5 font-sans">steep (λ = {fmt(stab.lambdaMax, 2)})</td>
+            <td className="py-0.5 text-right">{fmt(e?.steep, 3)}</td>
+            <td className={`py-0.5 text-right ${Math.abs(fac.steep) >= 1 ? "text-bad" : fac.steep < 0 ? "text-warn" : ""}`}>{fmt(fac.steep, 3)}</td>
+          </tr>
+          <tr>
+            <td className="py-0.5 font-sans">flat (λ = {fmt(stab.lambdaMin, 2)})</td>
+            <td className="py-0.5 text-right">{fmt(e?.flat, 3)}</td>
+            <td className="py-0.5 text-right">{fmt(fac.flat, 3)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        <RegimeExplanation regime={regime} lr={lr} lambdaMax={stab.lambdaMax} />{" "}
+        {regime !== "diverge" && Number.isFinite(slowSteps) && <>The flat direction needs ≈ {slowSteps} epochs per 10× reduction (κ = {fmt(stab.condition, 1)}).</>}
+      </p>
+    </Expand>
   );
 }
 

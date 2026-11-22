@@ -1,44 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import type { ReactNode } from "react";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { Tex, TexBlock } from "@/components/math/Tex";
-import { Callout, ExecutionBadge, Expand, SectionHeading } from "@/components/ui/primitives";
+import { Exercise, Figure, Lead } from "@/components/ui/lesson";
+import { Callout, Expand, SectionHeading } from "@/components/ui/primitives";
 import { K_MEANS_SECTIONS } from "@/content/curriculum";
+import { KMeans3DExplorer } from "@/labs/k-means/KMeans3DExplorer";
 import { LessonElbow, LessonFailures, LessonInit, LessonLloyd, LessonLocalMinimum } from "@/labs/k-means/LessonWidgets";
 
 export const metadata: Metadata = {
   title: "K-Means Clustering",
   description: "Lloyd's algorithm, its convergence guarantee, local minima, initialization, choosing K, and failure cases.",
 };
-
-const Lead = ({ children }: { children: ReactNode }) => <p className="text-[16.5px] leading-relaxed text-fg-2">{children}</p>;
-
-function Widget({ title, children, kind = "browser" }: { title: string; children: ReactNode; kind?: "browser" | "python" }) {
-  return (
-    <figure className="my-6 rounded-lg border border-line bg-surface p-4">
-      <figcaption className="mb-3 flex flex-wrap items-center justify-between gap-2 text-[13px] font-medium text-fg-2">
-        {title}
-        <ExecutionBadge kind={kind} />
-      </figcaption>
-      {children}
-    </figure>
-  );
-}
-
-function Exercise({ n, children, solution }: { n: number; children: ReactNode; solution: ReactNode }) {
-  return (
-    <li className="border-t border-line py-4">
-      <div className="flex gap-3">
-        <span className="font-mono text-sm text-fg-3">{n}.</span>
-        <div className="prose-lab min-w-0 flex-1">
-          {children}
-          <Expand title="Solution">{solution}</Expand>
-        </div>
-      </div>
-    </li>
-  );
-}
 
 const linkCls = "text-accent underline underline-offset-2";
 
@@ -165,9 +138,9 @@ export default function KMeansLesson() {
               because the cross term <Tex>{"2(\\bar x - \\mu)^\\top \\sum_i (x_i - \\bar x)"}</Tex> vanishes. The second term is zero exactly at <Tex>{"\\mu = \\bar x"}</Tex>: the mean is the unique minimizer.
             </p>
           </Expand>
-          <Widget title="Step through Lloyd's algorithm (click a point to see its distances)">
+          <Figure title="Step through Lloyd's algorithm (click a point to see its distances)">
             <LessonLloyd />
-          </Widget>
+          </Figure>
 
           {/* 5 */}
           <SectionHeading id="convergence">Convergence and local minima</SectionHeading>
@@ -188,9 +161,9 @@ export default function KMeansLesson() {
               <b>What is not guaranteed:</b> the global minimum. The algorithm stops at a <i>fixed point</i>, where every point is in its nearest cluster and every centroid is its cluster&apos;s mean. A typical bad fixed point puts two centroids in one true cluster and one centroid between two others. No single step can repair this, because moving any one centroid alone increases J.
             </p>
           </div>
-          <Widget title="Same data, same K, two random starts">
+          <Figure title="Same data, same K, two random starts">
             <LessonLocalMinimum />
-          </Widget>
+          </Figure>
 
           {/* 6 */}
           <SectionHeading id="initialization">Initialization</SectionHeading>
@@ -212,9 +185,9 @@ export default function KMeansLesson() {
               </li>
             </ul>
           </div>
-          <Widget title="30 initializations per method on the lesson data (K = 3)">
+          <Figure title="30 initializations per method on the lesson data (K = 3)">
             <LessonInit />
-          </Widget>
+          </Figure>
 
           {/* 7 */}
           <SectionHeading id="choosing-k">Choosing K</SectionHeading>
@@ -236,9 +209,25 @@ export default function KMeansLesson() {
               </li>
             </ul>
           </div>
-          <Widget title="Elbow and silhouette on the lesson data">
+          <Figure title="Elbow and silhouette on the lesson data">
             <LessonElbow />
-          </Widget>
+          </Figure>
+
+          <SectionHeading id="more-features">More than two features</SectionHeading>
+          <Lead>
+            Nothing in Lloyd&apos;s algorithm depends on the number of features. The distance simply sums over all of them, <Tex>{"\\lVert x - \\mu\\rVert^2 = \\sum_{d=1}^{D}(x_d - \\mu_d)^2"}</Tex>, and each centroid averages every feature separately.
+          </Lead>
+          <div className="prose-lab">
+            <p>
+              The data below has three features and three generating groups. Two groups have the same centre in <Tex>x_1</Tex> and <Tex>x_2</Tex> and differ only in <Tex>x_3</Tex>. Step through a run, then press <i>Top view</i>: it shows exactly the projection onto <Tex>{"(x_1, x_2)"}</Tex>, where those two groups are a single blob. A plot of two features can hide structure that the algorithm, using all features, finds.
+            </p>
+            <p>
+              The flip side: because the squared differences are added, a feature measured on a larger scale dominates the distance. Standardize features (or choose their units deliberately) before clustering.
+            </p>
+          </div>
+          <Figure title="Lloyd's algorithm with three features">
+            <KMeans3DExplorer />
+          </Figure>
 
           {/* 8 */}
           <SectionHeading id="limitations">Limitations and failure cases</SectionHeading>
@@ -261,9 +250,9 @@ export default function KMeansLesson() {
               </li>
             </ul>
           </div>
-          <Widget title="Best of 10 k-means++ runs on data that violates the assumptions">
+          <Figure title="Best of 10 k-means++ runs on data that violates the assumptions">
             <LessonFailures />
-          </Widget>
+          </Figure>
           <p className="text-[14px] text-fg-3">
             Load these datasets in the{" "}
             <Link className={linkCls} href="/labs/k-means#failure-cases">

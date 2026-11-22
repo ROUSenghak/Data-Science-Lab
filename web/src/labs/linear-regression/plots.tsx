@@ -6,6 +6,7 @@ import { Chart, linePath, type LegendItem, type Scales } from "@/components/plot
 import { focusedAxis, focusedResidual } from "@/lib/anim/focus";
 import { fmt } from "@/lib/format";
 import { eigSym2, hessian, leastSquares, lossEllipse, mse, type Dataset } from "@/lib/ml/linreg";
+import { autoDomain, contourLevels } from "@/lib/ml/lossLandscape";
 
 const pad = ([a, b]: [number, number], f = 0.08): [number, number] => {
   const r = b - a || 1;
@@ -280,21 +281,9 @@ export function LossSurfacePlot({
   const axisFocus = focusedAxis(focus);
   const opt = useMemo(() => leastSquares(data), [data]);
   const eig = useMemo(() => eigSym2(hessian(data)), [data]);
-  const { wDom, bDom } = useMemo(() => {
-    if (domain) return { wDom: domain.w, bDom: domain.b };
-    const pts = [[opt.w, opt.b], ...(anchor ? [anchor] : []), ...trajectory.slice(0, 1)].filter((p) => p.every(Number.isFinite));
-    let rw = Math.max(1, ...pts.map((p) => Math.abs(p[0] - opt.w)));
-    let rb = Math.max(1, ...pts.map((p) => Math.abs(p[1] - opt.b)));
-    rw *= 1.35;
-    rb *= 1.35;
-    return { wDom: [opt.w - rw, opt.w + rw] as [number, number], bDom: [opt.b - rb, opt.b + rb] as [number, number] };
-  }, [opt, anchor, trajectory, domain]);
-
-  const levels = useMemo(() => {
-    const corners = [mse(wDom[0], bDom[0], data), mse(wDom[0], bDom[1], data), mse(wDom[1], bDom[0], data), mse(wDom[1], bDom[1], data)];
-    const maxEx = Math.max(...corners) - opt.loss;
-    return Array.from({ length: 14 }, (_, k) => opt.loss + maxEx * 0.6 ** k);
-  }, [data, wDom, bDom, opt]);
+  const first = trajectory[0];
+  const { w: wDom, b: bDom } = useMemo(() => domain ?? autoDomain(data, anchor, first), [data, anchor, first, domain]);
+  const levels = useMemo(() => contourLevels(data, { w: wDom, b: bDom }), [data, wDom, bDom]);
   const ellipses = useMemo(() => levels.map((l) => ({ level: l, pts: lossEllipse(data, l) })), [levels, data]);
   const curLevel = levelThrough && current && current.every(Number.isFinite) ? mse(current[0], current[1], data) : null;
   const curEllipse = useMemo(() => (curLevel != null ? lossEllipse(data, curLevel, 160) : []), [curLevel, data]);

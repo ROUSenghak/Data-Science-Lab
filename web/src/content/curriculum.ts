@@ -42,6 +42,7 @@ export const K_MEANS_SECTIONS = [
   { id: "convergence", title: "Convergence and local minima" },
   { id: "initialization", title: "Initialization" },
   { id: "choosing-k", title: "Choosing K" },
+  { id: "more-features", title: "More than two features" },
   { id: "limitations", title: "Limitations and failure cases" },
   { id: "implementation", title: "Implementation" },
   { id: "exercises", title: "Exercises" },
